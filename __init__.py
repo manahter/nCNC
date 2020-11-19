@@ -5329,6 +5329,9 @@ class NCNC_OT_GCodeConvert(Operator):
             self.index_spline += 1
             return {'PASS_THROUGH'}
 
+        if True: #self.conf.fill:
+            self.pocket_on_surface_zigzag()
+
         return self.finished(context)
 
     def finished(self, context):
@@ -5469,7 +5472,7 @@ class NCNC_OT_GCodeConvert(Operator):
                         ("", f" I{r(i=I)} J{r(j=J)} K{r(k=K)}")[b > 1] + \
                         ("", f" F{conf.feed}")[i == 0]
 
-        self.scan_surface(subcurve)
+        #self.scan_surface(subcurve)
 
     def poly(self, subcurve):
         conf = self.conf
@@ -5497,13 +5500,16 @@ class NCNC_OT_GCodeConvert(Operator):
 
         self.code = f"G0 Z{r(z=self.safe_z)}"
 
-        self.scan_surface(subcurve)
+        #self.scan_surface(subcurve)
 
-    def line(self, vert0, vert1):
+    def line(self, vert0, vert1, new_line=False):
         r = self.roll
-        self.code = f"G0 Z{r(z=self.first_z)}"
-        self.code = f"G0 X{r(x=vert0.x)} Y{r(y=vert0.y)}"
-        self.code = f"G1 Z{r(z=vert0.z)}"
+        if new_line:
+            self.code = f"G0 Z{r(z=self.first_z)}"
+            self.code = f"G0 X{r(x=vert0.x)} Y{r(y=vert0.y)}"
+            self.code = f"G1 Z{r(z=vert0.z)}"
+        else:
+            self.code = f"G0 X{r(x=vert0.x)} Y{r(y=vert0.y)} Z{r(z=vert0.z)}"
         self.code = f"G1 X{r(x=vert1.x)} Y{r(y=vert1.y)} Z{r(z=vert1.z)}"
 
     # https://b3d.interplanety.org/en/how-to-create-mesh-through-the-blender-python-api/
@@ -5580,6 +5586,88 @@ class NCNC_OT_GCodeConvert(Operator):
             first_point.y -= 1
 
         bpy.data.objects.remove(obj)
+
+    def pocket_on_surface_zigzag(self):
+        """Obj type must Curve and shape 3D and fill"""
+
+        obj = self.obj_orj.copy()
+        obj.data = self.obj_orj.data.copy()
+
+        if obj.data.dimensions == '2D':
+            obj.data.dimensions = '3D'
+
+        # Buraya sınama durumlarını ekle.
+
+        # Clear splines that are not cycles.
+        for s in obj.data.splines:
+            if not s.use_cyclic_u:
+                obj.data.splines.remove(s)
+
+        ms = obj.to_mesh()
+        if not ms:
+            return
+
+        #print(*[v.co for v in ms.vertices], sep="\n")
+
+        # Convert to mesh
+        bm = bmesh.new()
+        bm.from_mesh(ms)
+
+        norm = Vector((-1.0, 1.0, 0))
+        norm.normalize()
+
+        # Calc first point. MinX and MaxY  -> Top Left Corner
+        v_x = [v.co.x for v in bm.verts]
+        v_y = [v.co.y for v in bm.verts]
+
+        dist = 1 * (math.sqrt(2) / 2)
+
+        first_point = Vector((min(v_x), max(v_y), 0))
+        max_x = max(v_x)
+        min_y = min(v_y)
+
+        # Grups -> Lines -> Line -> (Vert0, Vert1)
+        grups = []
+        while first_point.x < max_x or first_point.y > min_y:
+            _bm = bm.copy()
+
+            cut = bmesh.ops.bisect_plane(_bm, geom=_bm.edges[:] + _bm.faces[:], dist=0,
+                                         plane_co=first_point,
+                                         plane_no=norm,
+                                         )["geom_cut"]
+
+            verts = sorted([v.co for v in cut if isinstance(v, bmesh.types.BMVert)], key=lambda v: v.x)
+
+            # Grup
+            g = []
+
+            for v0, v1 in zip(verts[0::2], verts[1::2]):
+                if (v1.x - v0.x) < dist:
+                    continue
+                dist_vec = Vector((dist, dist, ((v1.z - v0.z) * dist) / ((v1.x - v0.x) * math.sqrt(2))))
+                v0 = v0 + dist_vec
+                v1 = v1 - dist_vec
+                if (v0 - v1).length < dist or (v0.x > v1.x):
+                    continue
+                g.append((v0, v1))
+
+            #self.line(v0, v1)
+
+            grups.append(g)
+            first_point.x += dist
+            first_point.y -= dist
+            print(*verts, sep="\n")
+        
+        # Burayı düzenle. Çizgiler zigzag çizsin. Kendisine en yakın olan çizgiden devam etsin. Arada engel varsa atlasın.
+        rev = False
+        g_son = [None]
+        for g in grups:
+            for l in g:
+                self.line(*l)
+
+                # ...
+            g_son = g
+
 
     @classmethod
     def disolve_verts_on_edge(cls, edges, dist=0.0):
