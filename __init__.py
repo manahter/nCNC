@@ -6,7 +6,7 @@ import time
 from datetime import timedelta
 from .nVector import nVector
 from mathutils import Vector, Matrix
-from mathutils.geometry import intersect_sphere_sphere_2d
+from mathutils.geometry import intersect_sphere_sphere_2d, intersect_point_line
 import math
 
 import blf
@@ -67,9 +67,14 @@ dev = None
 tr_translate = str.maketrans("ÇĞİÖŞÜçğıöşü", "CGIOSUcgiosu")
 
 """
+Release Notes:
+    * Viewporttaki Text objesi, Curve'ye çevrilmeden G koduna dönüştürülebiliyor.
+    * 
+"""
+
+# TODO:
+"""
 Eklenecek Özellikler;
-    * Objeyi, ToolPaths'a convert etmeden ekleyebilmelisin.
-        Mesela Vievportta Text oluşturduk, bunu convert etmeden, ToolPaths'a ekleyebilmeliyiz.
     * Kod çizgileri görününce, included objeler görünmesin. (Vision'dan bu özellik aktifleştirilebilir olur)
     * Toolpaths HeaderDraw'a Göster/Gizle Ekle -> Objeler için
     * Sadece belli bir objenin yollarını (kodunu) göster/gizle özelliği ekle
@@ -1065,38 +1070,93 @@ class nCompute:
         return A + cls.circle_center_(B_, C_, N)
 
     @classmethod
-    def disolve_verts_on_edge(cls, edges, dist=0.0):
+    def closest_dist_point(cls, bm, v):
         """
+        :bm: bmesh
+        :v: Vector
+        Point to check
+        Noktanın Bmesh'deki kenarlara olan uzaklığına bakar. En yakın kenara olan uzaklığını döndürür
+        """
+
+        dist = math.inf
+        for e in bm.edges[:]:
+            ipl = intersect_point_line(v, e.verts[0].co, e.verts[1].co)
+            if 0 <= ipl[1] <= 1:
+                _dist = (v - ipl[0]).length
+            else:
+                _dist = min((v - e.verts[0].co).length, (v - e.verts[1].co).length)
+
+            if _dist < dist:
+                dist = _dist
+        return dist
+        # return min([(v - intersect_point_line(v, e.verts[0].co, e.verts[1].co)[0]).length for e in bm.edges[:]])
+
+    @classmethod
+    def closest_dist_line(cls, bm, v0, v1):
+
+        dist = math.inf
+        for e in bm.edges[:]:
+            for v in e.verts:
+                ipl = intersect_point_line(v.co, v0, v1)
+                if 0 <= ipl[1] <= 1:
+                    _dist = (v.co - ipl[0]).length
+                else:
+                    _dist = min((v.co - v0).length, (v.co - v1).length)
+
+                if _dist < dist:
+                    dist = _dist
+        return dist
+
+    @classmethod
+    def disolve_verts_on_edge(cls, edges, dist=0.0):
+        """ Bu fonksiyon artık kullanılmıyor. Belki sonra işe yarar. Ama bunun yerine blender'da kullanışlılar var.
         :edges: BMEdge
         :dist: distance
         """
+
         dist_vec = Vector((dist, dist, dist))
-        controls = edges.copy()
-        for i in edges:
-            i_co0 = i.verts[0].co
-            i_co1 = i.verts[1].co
 
-            for j in controls:
-                if i == j:
-                    continue
-                j_co0 = j.verts[0].co
-                j_co1 = j.verts[1].co
-                if (i_co0 - j_co0) < dist_vec:
-                    j_co0.xyz = i_co1
-                elif (i_co0 - j_co1) < dist_vec:
-                    j_co1.xyz = i_co1
-                elif (i_co1 - j_co0) < dist_vec:
-                    j_co0.xyz = i_co0
-                elif (i_co1 - j_co1) < dist_vec:
-                    j_co1.xyz = i_co0
-                elif (i_co0 - i_co1) < dist_vec:
-                    pass
-                else:
-                    continue
+        # BEdge Verts 0->minXY 1-> maxXY
+        for e in edges:
+            v0 = e.verts[0]
+            v1 = e.verts[1]
+            if v0.co.x > v1.co.x:
+                _ = v0.co.copy()
+                v0.co = v1.co
+                v1.co = _
 
-                controls.remove(i)
+        # BEdge sort minX...maxX
+        edges = sorted(edges, key=lambda x: x.verts[0].co.x)
 
-        return controls
+        lines = []
+
+        for e in edges:
+            if not len(lines):
+                lines.append(e)
+                continue
+
+            l_v0, l_v1 = [i.co for i in lines[-1].verts]
+            e_v0, e_v1 = [i.co for i in e.verts]
+
+            vec_l = l_v1 - l_v0
+            vec_e = e_v1 - e_v0
+
+            if vec_e < dist_vec:
+                continue
+            elif vec_l < dist_vec:
+                lines[-1] = e
+                continue
+
+            ang = vec_e.angle(vec_l)
+
+            is_linear = round(ang, 3) == 0 or round(ang, 4) == 3.1416
+
+            if is_linear and (l_v0.x == e_v0.x or l_v1.x >= e_v0.x or l_v1 - e_v0 < dist_vec):
+                l_v1.xyz = (e_v1, l_v1)[l_v1.x > e_v1.x]
+            else:
+                lines.append(e)
+
+        return lines
 
 # my_icons_dir = os.path.join(os.path.dirname(__file__), "icons")
 # icons = bpy.utils.previews.new()
@@ -1210,6 +1270,7 @@ class NCNC_OT_GCodeCreate(Operator):
         ##################
         # Convert to GCodes
         self.codes.clear()
+        # TODO: min_point, max_point    -> Bunları kullanılabilir yap
         self.min_point = [0, 0, 0]
         self.max_point = [0, 0, 0]
 
@@ -4797,7 +4858,7 @@ class NCNC_PR_ToolpathConfigs(PropertyGroup):
 
     def update_included(self, context):
         if self.included:
-            if self.check_curve(self.id_data):
+            if self.check_for_include(self.id_data):
                 context.scene.ncnc_pr_objects.add_item(self.id_data)
                 self.reload_gcode(context)
             else:
@@ -4967,13 +5028,13 @@ class NCNC_PR_ToolpathConfigs(PropertyGroup):
     )
 
     def fill_set(self, value):
-        bpy.context.object.data.dimensions = '2D' if value else '3D'
-        bpy.context.object.data.fill_mode = 'FRONT' if value else 'FULL'
+        # bpy.context.object.data.dimensions = '2D' if value else '3D'
+        bpy.context.object.data.fill_mode = 'FRONT' if value else ('FULL' if bpy.context.object.data.dimensions == '3D' else 'NONE')
         self.is_updated = True
         #self.reload_gcode()
 
     def fill_get(self):
-        return bpy.context.object.data.dimensions == '2D' and bpy.context.object.data.fill_mode != 'NONE'
+        return bpy.context.object.data.fill_mode == 'FRONT' # and bpy.context.object.data.dimensions == '2D'
 
     fill: BoolProperty(
         name="Fill",
@@ -4983,13 +5044,15 @@ class NCNC_PR_ToolpathConfigs(PropertyGroup):
         get=fill_get
     )
 
-    def check_curve(self, obj):
+    def check_for_include(self, obj):
         """ Checks if the object type is Curve (Bezier or Poly)"""
         if obj.type == "CURVE":
             o = []
             for i in obj.data.splines:
                 o.append(i.type == "POLY" or i.type == "BEZIER")
             return False not in o
+        elif obj.type == "FONT":
+            return True
         else:
             return False
 
@@ -5023,22 +5086,28 @@ class NCNC_OT_ToolpathConfigs(Operator):
             self.report({'WARNING'}, "No Object Selected")
             return {"FINISHED"}
 
-        if obj.type != 'CURVE':  # Curve değilse
-            bpy.ops.object.convert(target='CURVE')  # Curve'e çevir
+        # Convert if not suitable
+        if obj.type not in ('CURVE', 'FONT'):
+            bpy.ops.object.convert(target='CURVE')
 
-        if obj.type != 'CURVE':  # Curve'e çevrilmiyorsa
+        # Cancel if still not suitable
+        if obj.type not in ('CURVE', 'FONT'):
             self.report({'WARNING'}, f"Cannot convert to curve : {obj.name}")
             return {"CANCELLED"}
 
-        if not objAyar.check_curve(obj):  # Curve ama Bezier veya Poly değilse    (ilerde geliştirilecek)
-            self.report({'INFO'}, "Curve tipi uygun değil : %s" % (obj.name))
-            return {"FINISHED"}  # Bitir
+        # TODO: NURBS için de geliştir.
+        # Curve ok, if not Bezier or Poly
+        if not objAyar.check_for_include(obj):
+            self.report({'INFO'}, f"Not the desired type : {obj.name}")
+            return {"FINISHED"}
 
-        objAyar.included = True  # Convert edildikten sonra, CNC'de işlenmek üzere included edilir.
-        if "nCurve" not in obj.name:
-            obj.name = "nCurve." + obj.name
+        # Include in the mill.
+        objAyar.included = True
 
-        self.report({'INFO'}, f"Convert to Curve : {obj.name}")
+        # if "nCurve" not in obj.name:
+        #     obj.name = "nCurve." + obj.name
+
+        self.report({'INFO'}, f"Included in the mill: {obj.name}")
 
         return {"FINISHED"}
 
@@ -5071,10 +5140,10 @@ class NCNC_PT_ToolpathConfigs(Panel):
 
         row = layout.row(align=True)
         row.prop(props, "included", text="", icon="CHECKBOX_HLT" if props.included else "CHECKBOX_DEHLT")
-        row.enabled = props.check_curve(obj)
+        row.enabled = props.check_for_include(obj)
         row.prop(obj, "name", text="")
 
-        isok = props.check_curve(obj)
+        isok = props.check_for_include(obj)
         if isok:
             row.prop(props, "as_line",
                      icon="IPO_CONSTANT" if props.as_line else "IPO_EASE_IN_OUT",
@@ -5083,7 +5152,7 @@ class NCNC_PT_ToolpathConfigs(Panel):
                      icon="SNAP_FACE" if props.fill else "MATPLANE",
                      icon_only=True)
 
-        # if not props.check_curve(obj):
+        # if not props.check_for_include(obj):
         #    row.operator("ncnc.toolpathconfigs", text="", icon="CURVE_DATA")
 
 
@@ -5124,7 +5193,7 @@ class NCNC_PT_ToolpathConfigsDetails(Panel):
 
         props = obj.ncnc_pr_toolpathconfigs
 
-        if not props.check_curve(obj):
+        if not props.check_for_include(obj):
             return
 
         layout = self.layout
@@ -5153,8 +5222,6 @@ class NCNC_OT_GCodeConvert(Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     obj_name: StringProperty()
-    # obj: PointerProperty(type=Object, name="Object")
-    # conf: PointerProperty(type=NCNC_PR_ToolpathConfigs, name="ToolpathConfigs")
     obj_orj = None
     obj = None
     conf = None
@@ -5192,7 +5259,14 @@ class NCNC_OT_GCodeConvert(Operator):
         # Copy and select to object
         obj_orj = bpy.data.objects[self.obj_name]
         obj = obj_orj.copy()
-        obj.data = obj.data.copy()
+
+        if obj_orj.type == "FONT":
+            obj.data = self.get_data_text_object(context, obj_orj)
+            if not obj.data:
+                return {'CANCELLED'}
+        else:
+            obj.data = obj.data.copy()
+
         conf = obj_orj.ncnc_pr_toolpathconfigs
 
         # Report: self is running
@@ -5222,12 +5296,11 @@ class NCNC_OT_GCodeConvert(Operator):
         obj.data.transform(obj.matrix_world)
         obj.matrix_world = Matrix()
 
-        self.obj_orj = obj
-        self.obj = obj.data
+        self.obj = obj
 
         ##########################################
         ##########################################
-        if conf.step > conf.depth or not len(self.obj.splines):
+        if conf.step > conf.depth or not len(self.obj.data.splines):
             return self.timer_remove(context, only_object=True)
 
         # Steps in the Z axis -> 0.5, 1.0, 1.5, 2.0 ...
@@ -5284,7 +5357,7 @@ class NCNC_OT_GCodeConvert(Operator):
         # Necessary calculations have been made
         # Gcode can now be creating for object
 
-        splines = self.obj.splines
+        splines = self.obj.data.splines
 
         rate_spline = (1 / len(splines)) * 100
         self.conf.loading = max(rate_spline * self.index_spline, 1)
@@ -5329,7 +5402,7 @@ class NCNC_OT_GCodeConvert(Operator):
             self.index_spline += 1
             return {'PASS_THROUGH'}
 
-        if True: #self.conf.fill:
+        if self.conf.fill:
             self.pocket_on_surface_zigzag()
 
         return self.finished(context)
@@ -5367,6 +5440,29 @@ class NCNC_OT_GCodeConvert(Operator):
             self.conf.max_point[no] = max(self.conf.max_point[no], val)
 
         return val
+
+    @classmethod
+    def get_data_text_object(cls, context, obj):
+        """Text object convert to curve and return Curve data"""
+        last_active_obj = context.active_object
+
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+
+        before_all_objects = bpy.data.objects[:]
+
+        bpy.ops.object.convert(target="CURVE", keep_original=True)
+
+        diff = set(bpy.data.objects[:]) - set(before_all_objects)
+
+        if len(diff):
+            new_obj = diff.pop()
+            data = new_obj.data.copy()
+            bpy.data.objects.remove(new_obj)
+            bpy.ops.object.select_all(action='DESELECT')
+            context.view_layer.objects.active = last_active_obj
+            return data
 
     def bezier(self, subcurve, reverse=False):
         conf = self.conf
@@ -5435,7 +5531,11 @@ class NCNC_OT_GCodeConvert(Operator):
 
                 # Step rate
                 step = 1 / resolution
-
+                
+                # TODO: Bizim bezier üzerinde nokta bulma fonksiyonu yerine, var olan şuradaki fonksiyonu dene
+                #  -> interpolate_bezier
+                # https://behreajj.medium.com/scripting-curves-in-blender-with-python-c487097efd13
+                
                 # Find as many points as resolution along the curve
                 for i in range(resolution + 1):
                     o = nVector.bul_bezier_nokta_4p1t(step * i, m1, hr, hl, m2)
@@ -5513,90 +5613,17 @@ class NCNC_OT_GCodeConvert(Operator):
         self.code = f"G1 X{r(x=vert1.x)} Y{r(y=vert1.y)} Z{r(z=vert1.z)}"
 
     # https://b3d.interplanety.org/en/how-to-create-mesh-through-the-blender-python-api/
-    def scan_surface(self, obj_sub):
-        if not obj_sub.use_cyclic_u or not self.conf.fill:
-            return
-
-        # !!! Data'yı dönmeden önce bpy.data.curve vs'den sil. ki kalabalık yapmasın
-        obj = self.obj_orj.copy()
-        obj.data = self.obj_orj.data.copy()
-        if obj_sub.type in ('POLY', 'BEZIER', 'BSPLINE', 'CARDINAL', 'NURBS'):
-            for j, i in enumerate(obj.data.splines):
-                if j != self.index_spline:
-                    obj.data.splines.remove(i)
-
-        elif obj_sub.type == "MESH":
-            pass
-        else:
-            return
-
-        self.block += 1
-        self.add_block(name="Cep", expand="0", enable="1")
-
-        bm = bmesh.new()
-        bm.from_mesh(obj.to_mesh())
-
-        norm = Vector((-1.0, 1.0, 0))
-        norm.normalize()
-
-        v_x = [v.co.x for v in bm.verts]
-        v_y = [v.co.y for v in bm.verts]
-
-        first_point = Vector((min(v_x), max(v_y), 0))
-        max_x = max(v_x)
-        min_y = min(v_y)
-
-        rev = False
-        tool_width = 0
-
-        while first_point.x < max_x or first_point.y > min_y:
-            _bm = bm.copy()
-
-            cut = bmesh.ops.bisect_plane(_bm, geom=_bm.edges[:] + _bm.faces[:], dist=0,
-                                         plane_co=first_point,
-                                         plane_no=norm,
-                                         )
-
-            edges = self.disolve_verts_on_edge([i for i in cut["geom_cut"] if isinstance(i, bmesh.types.BMEdge)], dist=.01)
-            verts = []
-            [verts.extend([v.co - self.step_vector for v in e.verts]) for e in edges]
-
-            verts = sorted(verts, key=lambda v: v.x)
-
-            if rev:
-                verts.reverse()
-
-            for v0, v1 in zip(verts[0::2], verts[1::2]):
-                # !!! Düzenle
-                #if not rev:
-                #    v0.x += tool_width
-                #    v0.y += tool_width
-                #    v1.x -= tool_width
-                #    v1.y -= tool_width
-                #else:
-                #    v1.x += tool_width
-                #    v1.y += tool_width
-                #    v0.x -= tool_width
-                #    v0.y -= tool_width
-
-                self.line(v0, v1)
-
-            rev = not rev
-            first_point.x += 1
-            first_point.y -= 1
-
-        bpy.data.objects.remove(obj)
-
     def pocket_on_surface_zigzag(self):
         """Obj type must Curve and shape 3D and fill"""
 
-        obj = self.obj_orj.copy()
-        obj.data = self.obj_orj.data.copy()
+        obj = self.obj.copy()
+        obj.data = self.obj.data.copy()
 
         if obj.data.dimensions == '2D':
             obj.data.dimensions = '3D'
 
         # Buraya sınama durumlarını ekle.
+        # Metod bittikten sonra Z döngüsünü ekle
 
         # Clear splines that are not cycles.
         for s in obj.data.splines:
@@ -5606,8 +5633,6 @@ class NCNC_OT_GCodeConvert(Operator):
         ms = obj.to_mesh()
         if not ms:
             return
-
-        #print(*[v.co for v in ms.vertices], sep="\n")
 
         # Convert to mesh
         bm = bmesh.new()
@@ -5644,20 +5669,56 @@ class NCNC_OT_GCodeConvert(Operator):
             for v0, v1 in zip(verts[0::2], verts[1::2]):
                 if (v1.x - v0.x) < dist:
                     continue
-                dist_vec = Vector((dist, dist, ((v1.z - v0.z) * dist) / ((v1.x - v0.x) * math.sqrt(2))))
-                v0 = v0 + dist_vec
-                v1 = v1 - dist_vec
-                if (v0 - v1).length < dist or (v0.x > v1.x):
-                    continue
-                g.append((v0, v1))
 
-            #self.line(v0, v1)
+                # v0 = v0.xyz# + dist_vec
+                # v1 = v1.xyz# - dist_vec
+
+                # Distance control step
+                step = dist / 10
+
+                cont = False
+
+                while nCompute.closest_dist_point(_bm, v0) < dist:
+                    v0 = v0.lerp(v1, step / (v1 - v0).length)
+                    if v0.x > v1.x: # or ((v0 - v1).length < dist):
+                        cont = True
+                        break
+
+                if cont:
+                    continue
+
+                while nCompute.closest_dist_point(_bm, v1) < dist:
+                    v1 = v1.lerp(v0, step / (v1 - v0).length)
+                    if v0.x > v1.x: # or ((v0 - v1).length < dist):
+                        cont = True
+                        break
+
+                if cont:
+                    continue
+
+                if nCompute.closest_dist_line(_bm, v0, v1) < dist:
+                    v0_ort = v0.lerp(v1, step / (v1 - v0).length)
+                    while v0_ort.x < v1.x and (v1 - v0_ort).length > dist:
+
+                        while nCompute.closest_dist_line(_bm, v0, v0_ort.lerp(v1, step / (v1 - v0_ort).length)) > dist and v0_ort.x < v1.x:
+                            v0_ort = v0_ort.lerp(v1, step / (v1 - v0_ort).length)
+
+                        if (v0 - v0_ort).length > dist:
+                            g.append((v0.copy(), v0_ort.copy()))
+
+                        v0 = v0_ort.xyz
+
+                        while nCompute.closest_dist_line(_bm, v0, v0_ort.lerp(v1, step / (v1 - v0_ort).length)) < dist and v0_ort.x < v1.x:
+                            v0_ort = v0_ort.lerp(v1, step / (v1 - v0_ort).length)
+                            v0 = v0_ort.xyz
+
+                else:
+                    g.append((v0, v1))
 
             grups.append(g)
             first_point.x += dist
             first_point.y -= dist
-            print(*verts, sep="\n")
-        
+
         # Burayı düzenle. Çizgiler zigzag çizsin. Kendisine en yakın olan çizgiden devam etsin. Arada engel varsa atlasın.
         rev = False
         g_son = [None]
@@ -5667,57 +5728,6 @@ class NCNC_OT_GCodeConvert(Operator):
 
                 # ...
             g_son = g
-
-
-    @classmethod
-    def disolve_verts_on_edge(cls, edges, dist=0.0):
-        """
-        :edges: BMEdge
-        :dist: distance
-        """
-        dist_vec = Vector((dist, dist, dist))
-
-        # BEdge Verts 0->minXY 1-> maxXY
-        for e in edges:
-            v0 = e.verts[0]
-            v1 = e.verts[1]
-            if v0.co.x > v1.co.x:
-                _ = v0.co.copy()
-                v0.co = v1.co
-                v1.co = _
-
-        # BEdge sort minX...maxX
-        edges = sorted(edges, key=lambda x: x.verts[0].co.x)
-
-        lines = []
-
-        for e in edges:
-            if not len(lines):
-                lines.append(e)
-                continue
-
-            l_v0, l_v1 = [i.co for i in lines[-1].verts]
-            e_v0, e_v1 = [i.co for i in e.verts]
-
-            vec_l = l_v1 - l_v0
-            vec_e = e_v1 - e_v0
-
-            if vec_e < dist_vec:
-                continue
-            elif vec_l < dist_vec:
-                lines[-1] = e
-                continue
-
-            ang = vec_e.angle(vec_l)
-
-            is_linear = round(ang, 3) == 0 or round(ang, 4) == 3.1416
-
-            if is_linear and (l_v0.x == e_v0.x or l_v1.x >= e_v0.x or l_v1 - e_v0 < dist_vec):
-                l_v1.xyz = (e_v1, l_v1)[l_v1.x > e_v1.x]
-            else:
-                lines.append(e)
-
-        return lines
 
     def starting_code(self, point_list):
         max_z = -10000
