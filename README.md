@@ -43,6 +43,12 @@ This add-on; Allows you to control the CNC machine and generate G-code to millin
 [![Jog](https://user-images.githubusercontent.com/73780835/98465377-bef0bd00-21d9-11eb-8c31-b40152f22837.gif)](https://youtu.be/6yTcJT8kL2c?t=286 "go Youtube Video")
 
 ## Feature Done
+### v0.6.6
+* Added, pocket engrave on the surface
+* Pocket carving range can be changed.
+* Pockets can also be created on inclined objects.
+* Code can be generated without converting the text object to a curve.
+
 ### v0.6.5
 * Improvements have been made to the code.
 * Added progress bar to converting process for included objects.
