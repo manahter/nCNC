@@ -48,6 +48,7 @@ This add-on; Allows you to control the CNC machine and generate G-code to millin
 * Pocket carving range can be changed.
 * Pockets can also be created on inclined objects.
 * Code can be generated without converting the text object to a curve.
+* [Click for details](https://github.com/manahter/nCNC/releases/tag/v0.6.6)
 
 ### v0.6.5
 * Improvements have been made to the code.
