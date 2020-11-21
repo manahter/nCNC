@@ -1,12 +1,11 @@
 # -*- coding:utf-8 -*-
-
 import os
 import re
 import time
 from datetime import timedelta
 from .nVector import nVector
 from mathutils import Vector, Matrix
-from mathutils.geometry import intersect_sphere_sphere_2d, intersect_point_line
+from mathutils.geometry import intersect_sphere_sphere_2d, intersect_point_line, intersect_line_line_2d
 import math
 
 import blf
@@ -42,11 +41,11 @@ from bpy_extras.view3d_utils import (
     region_2d_to_vector_3d,
     region_2d_to_origin_3d
 )
-from nCNC.modules.serial import Serial
+from .modules.serial import Serial
 # from nCNC.pars.connection import NCNC_PR_Connection, NCNC_PT_Connection
 
 # USB portlarını bulur...
-from nCNC.modules.serial.tools.list_ports import comports
+from .modules.serial.tools.list_ports import comports
 
 bl_info = {
     "name": "nCNC",
@@ -69,7 +68,8 @@ tr_translate = str.maketrans("ÇĞİÖŞÜçğıöşü", "CGIOSUcgiosu")
 """
 Release Notes:
     * Viewporttaki Text objesi, Curve'ye çevrilmeden G koduna dönüştürülebiliyor.
-    * 
+    * Yüzeye cep açılabiliyor.
+    * Cepteki işleme aralığı değiştirlebiliyor.
 """
 
 # TODO:
@@ -78,9 +78,8 @@ Eklenecek Özellikler;
     * Kod çizgileri görününce, included objeler görünmesin. (Vision'dan bu özellik aktifleştirilebilir olur)
     * Toolpaths HeaderDraw'a Göster/Gizle Ekle -> Objeler için
     * Sadece belli bir objenin yollarını (kodunu) göster/gizle özelliği ekle
-    
     * Koddaki hatalı kısımların çizgisi kırmızı olacak şekilde düzenle. Vision'a da eklenebilir
-    
+    * Kod satırları için TextEditör benzeri ayrı bir alan oluşturulabilir mi araştır.
 """
 
 
@@ -180,7 +179,6 @@ class NCNC_PR_Texts(PropertyGroup):
     @classmethod
     def unregister(cls):
         del Scene.ncnc_pr_texts
-
 
 
 class NCNC_OT_TextsOpen(Operator, ImportHelper):
@@ -766,9 +764,9 @@ class NCNC_PR_Head(PropertyGroup):
 
             # Track Included Objects
             bpy.ops.ncnc.objects(start=True)
-        else:
-            # Cancel Track
-            bpy.ops.ncnc.objects(start=False)
+        #else:
+        #    # Cancel Track
+        #    bpy.ops.ncnc.objects(start=False)
 
     tool_scene: BoolProperty(
         name="Scene Tools",
@@ -1167,6 +1165,36 @@ class nCompute:
 # #################################
 # #################################
 # #################################
+# Called when the scene is updated.
+def catch_update(scene, desgraph):
+    for item in scene.ncnc_pr_objects.items:
+        if not item.obj:
+            continue
+        self = item.obj.ncnc_pr_toolpathconfigs
+        obj = self.id_data
+
+        if obj.update_from_editmode() or obj.update_tag() or \
+                self.last_loc != obj.location or self.last_rot != Vector(obj.rotation_euler) or \
+                self.last_sca != obj.scale:
+
+            self.is_updated = True
+            self.last_loc = obj.location.copy()
+            self.last_rot = Vector(obj.rotation_euler)
+            self.last_sca = obj.scale.copy()
+
+
+def catch_start():
+    posts = bpy.app.handlers.depsgraph_update_post
+    if catch_update not in posts:
+        bpy.app.handlers.depsgraph_update_post.append(catch_update)
+
+
+def catch_stop():
+    posts = bpy.app.handlers.depsgraph_update_post
+    if catch_update in posts:
+        posts.remove(catch_update)
+
+
 class NCNC_PR_GCodeCreate(PropertyGroup):
     isrun = []
 
@@ -1234,6 +1262,7 @@ class NCNC_OT_GCodeCreate(Operator):
     bl_label = "Convert"
     bl_description = "Convert included objects to Gcode"
     bl_options = {'REGISTER', 'UNDO'}
+    #bl_options = {'REGISTER'}
 
     # if auto converting, auto_call must True
     auto_call: BoolProperty(default=False)
@@ -1281,6 +1310,7 @@ class NCNC_OT_GCodeCreate(Operator):
     def timer_add(self, context):
         wm = context.window_manager
         self._timer = wm.event_timer_add(self.delay, window=context.window)
+        catch_start()
         return {"RUNNING_MODAL"}
 
     def timer_remove(self, context):
@@ -1791,8 +1821,6 @@ def unregister_modal(self):
 
 # ##########################################################
 # ##########################################################
-
-
 class NCNC_OT_Communication(Operator):
     bl_idname = "ncnc.communication"
     bl_label = "Communication"
@@ -4985,12 +5013,16 @@ class NCNC_PR_ToolpathConfigs(PropertyGroup):
     )
 
     def resolution_general_set(self, value):
-        bpy.context.object.data.resolution_u = value
+        if not self.id_data:
+            return
+        self.id_data.data.resolution_u = value
         self.is_updated = True
         # self.reload_gcode()
 
     def resolution_general_get(self):
-        return bpy.context.object.data.resolution_u
+        if not self.id_data:
+            return
+        return self.id_data.data.resolution_u
 
     resolution_general: IntProperty(
         name="Resolution General for Object",
@@ -5003,12 +5035,16 @@ class NCNC_PR_ToolpathConfigs(PropertyGroup):
     )
 
     def resolution_spline_set(self, value):
-        bpy.context.object.data.splines.active.resolution_u = value
+        if not self.id_data:
+            return
+        self.id_data.data.splines.active.resolution_u = value
         self.is_updated = True
         # self.reload_gcode()
 
     def resolution_spline_get(self):
-        return bpy.context.object.data.splines.active.resolution_u
+        if not self.id_data:
+            return
+        return self.id_data.data.splines.active.resolution_u
 
     resolution_spline: IntProperty(
         name="Resolution Spline in Object",
@@ -5027,21 +5063,35 @@ class NCNC_PR_ToolpathConfigs(PropertyGroup):
                     "as Curve: Use curves and lines. Use all, including G2-G3."
     )
 
-    def fill_set(self, value):
-        # bpy.context.object.data.dimensions = '2D' if value else '3D'
-        bpy.context.object.data.fill_mode = 'FRONT' if value else ('FULL' if bpy.context.object.data.dimensions == '3D' else 'NONE')
+    def pocket_set(self, value):
+        if not self.id_data:
+            return
+        self.id_data.data.fill_mode = 'FRONT' if value else ('FULL' if self.id_data.data.dimensions == '3D' else 'NONE')
         self.is_updated = True
-        #self.reload_gcode()
+        # self.reload_gcode()
 
-    def fill_get(self):
-        return bpy.context.object.data.fill_mode == 'FRONT' # and bpy.context.object.data.dimensions == '2D'
+    def pocket_get(self):
+        if not self.id_data:
+            return
+        if self.id_data.type == "FONT":
+            return self.id_data.data.fill_mode != "NONE"
+        return self.id_data.data.fill_mode == 'FRONT'
 
-    fill: BoolProperty(
-        name="Fill",
+    pocket: BoolProperty(
+        name="Pocket",
         default=False,
-        description="Path or surface milling",
-        set=fill_set,
-        get=fill_get
+        description="Pocket on Surface",
+        set=pocket_set,
+        get=pocket_get,
+        update=reload_gcode
+    )
+
+    carving_range: FloatProperty(
+        name="Carving Range (mm)",
+        description="The tool diameter in mm is entered",
+        default=2,
+        step=50,
+        update=reload_gcode
     )
 
     def check_for_include(self, obj):
@@ -5066,6 +5116,19 @@ class NCNC_PR_ToolpathConfigs(PropertyGroup):
     @classmethod
     def unregister(cls):
         del Object.ncnc_pr_toolpathconfigs
+
+
+def deep_remove_to_object(obj):
+    obj.to_mesh_clear()
+    _data = obj.data
+    _type = obj.type
+    bpy.data.objects.remove(obj)
+    if _type in ("FONT", "CURVE"):
+        bpy.data.curves.remove(_data)
+    elif _type == "MESH":
+        bpy.data.meshes.remove(_data)
+    else:
+        print("Temizleyemedik")
 
 
 class NCNC_OT_ToolpathConfigs(Operator):
@@ -5148,8 +5211,8 @@ class NCNC_PT_ToolpathConfigs(Panel):
             row.prop(props, "as_line",
                      icon="IPO_CONSTANT" if props.as_line else "IPO_EASE_IN_OUT",
                      icon_only=True)
-            row.prop(props, "fill",
-                     icon="SNAP_FACE" if props.fill else "MATPLANE",
+            row.prop(props, "pocket",
+                     icon="SNAP_FACE" if props.pocket else "MATPLANE",
                      icon_only=True)
 
         # if not props.check_for_include(obj):
@@ -5177,8 +5240,8 @@ class NCNC_PT_ToolpathConfigs(Panel):
         col.prop(props, "spindle")
 
 
-class NCNC_PT_ToolpathConfigsDetails(Panel):
-    bl_idname = "NCNC_PT_tconfigsdetails"
+class NCNC_PT_ToolpathConfigsDetailConverting(Panel):
+    #bl_idname = "NCNC_PT_tconfigsdetailconverting"
     bl_label = "Detail: Converting"
     bl_region_type = "UI"
     bl_space_type = "VIEW_3D"
@@ -5215,11 +5278,40 @@ class NCNC_PT_ToolpathConfigsDetails(Panel):
                 col.prop(props, "resolution_spline", slider=True, text="Resolution Spline in Obj")
 
 
+class NCNC_PT_ToolpathConfigsDetailPocket(Panel):
+    #bl_idname = "NCNC_PT_tconfigsdetailpocket"
+    bl_label = "Detail: Pocket"
+    bl_region_type = "UI"
+    bl_space_type = "VIEW_3D"
+    bl_category = "nCNC"
+    bl_parent_id = "NCNC_PT_objectconfigs"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        obj = context.active_object
+        if not obj:
+            return
+
+        props = obj.ncnc_pr_toolpathconfigs
+
+        if not props.check_for_include(obj):
+            return
+
+        layout = self.layout
+        col = layout.column(align=True)
+        col.enabled = props.included  # Tip uygun değilse buraları pasif yapar
+
+        col = layout.column(align=True)
+        col.enabled = props.included  # Tip uygun değilse buraları pasif yapar
+        col.prop(props, "carving_range")
+
+
 class NCNC_OT_GCodeConvert(Operator):
     bl_idname = "ncnc.gcode_convert"
     bl_label = "Convert"
     bl_description = "Convert object to Gcode"
     bl_options = {'REGISTER', 'UNDO'}
+    # bl_options = {'REGISTER'}
 
     obj_name: StringProperty()
     obj_orj = None
@@ -5232,7 +5324,7 @@ class NCNC_OT_GCodeConvert(Operator):
     delay = .1
     _last_time = 0
 
-    safe_z: FloatProperty()
+    safe_z = None
     first_z: FloatProperty()
     block: IntProperty(default=0)
     index_spline: IntProperty(default=0)
@@ -5256,10 +5348,11 @@ class NCNC_OT_GCodeConvert(Operator):
         if context.active_object and context.active_object.mode == "EDIT":
             bpy.ops.object.editmode_toggle()
 
-        # Copy and select to object
+        # Copy object
         obj_orj = bpy.data.objects[self.obj_name]
         obj = obj_orj.copy()
 
+        # Copy data
         if obj_orj.type == "FONT":
             obj.data = self.get_data_text_object(context, obj_orj)
             if not obj.data:
@@ -5268,7 +5361,7 @@ class NCNC_OT_GCodeConvert(Operator):
             obj.data = obj.data.copy()
 
         conf = obj_orj.ncnc_pr_toolpathconfigs
-
+        conf.is_updated = False
         # Report: self is running
         self.run_index = conf.im_running()
 
@@ -5278,7 +5371,7 @@ class NCNC_OT_GCodeConvert(Operator):
 
         self.conf = conf
 
-        self.safe_z = -1000
+        # self.safe_z = None
         self.codes = ""
         self.block = 0
         self.dongu = []
@@ -5291,12 +5384,17 @@ class NCNC_OT_GCodeConvert(Operator):
 
         # To avoid the error in 2D. Problem -> transform_apply( .. )
         last_dim = obj.data.dimensions
-        # obj.data.dimensions = "3D"
+        obj.data.dimensions = "3D"
 
         obj.data.transform(obj.matrix_world)
         obj.matrix_world = Matrix()
-
         self.obj = obj
+
+        # Find Max Z
+        _ob = obj.copy()
+        _ob.data = _ob.data.copy()
+        self.max_z = max([v.co.z for v in _ob.to_mesh().vertices])
+        deep_remove_to_object(_ob)
 
         ##########################################
         ##########################################
@@ -5402,7 +5500,7 @@ class NCNC_OT_GCodeConvert(Operator):
             self.index_spline += 1
             return {'PASS_THROUGH'}
 
-        if self.conf.fill:
+        if self.conf.pocket:
             self.pocket_on_surface_zigzag()
 
         return self.finished(context)
@@ -5413,9 +5511,10 @@ class NCNC_OT_GCodeConvert(Operator):
 
         self.report({"INFO"}, f"Converted {self.obj_name}")
 
+        deep_remove_to_object(self.obj)
         return self.timer_remove(context)
 
-    def add_block(self, name=None, expand="0", enable="1"):
+    def add_block(self, name=None, expand="0", enable="1", description=""):
         self.code = f"\n(Block-name: {name or self.obj_name}-{self.block})"
         self.code = f"(Block-expand: {expand})"
         self.code = f"(Block-enable: {enable})"
@@ -5459,7 +5558,7 @@ class NCNC_OT_GCodeConvert(Operator):
         if len(diff):
             new_obj = diff.pop()
             data = new_obj.data.copy()
-            bpy.data.objects.remove(new_obj)
+            deep_remove_to_object(new_obj)
             bpy.ops.object.select_all(action='DESELECT')
             context.view_layer.objects.active = last_active_obj
             return data
@@ -5602,19 +5701,20 @@ class NCNC_OT_GCodeConvert(Operator):
 
         #self.scan_surface(subcurve)
 
-    def line(self, vert0, vert1, new_line=False):
+    def line(self, vert0, vert1, new_line=False, first_z=None):
         r = self.roll
+        # TODO: First Z'yi düzenle. Objenin tüm vertexlerinin genelinden bulsun first Z'yi
         if new_line:
-            self.code = f"G0 Z{r(z=self.first_z)}"
+            self.code = f"G0 Z{r(z=first_z or self.max_z)}"
             self.code = f"G0 X{r(x=vert0.x)} Y{r(y=vert0.y)}"
             self.code = f"G1 Z{r(z=vert0.z)}"
-        else:
-            self.code = f"G0 X{r(x=vert0.x)} Y{r(y=vert0.y)} Z{r(z=vert0.z)}"
+        #else:
+        #    self.code = f"G0 X{r(x=vert0.x)} Y{r(y=vert0.y)} Z{r(z=vert0.z)}"
         self.code = f"G1 X{r(x=vert1.x)} Y{r(y=vert1.y)} Z{r(z=vert1.z)}"
 
-    # https://b3d.interplanety.org/en/how-to-create-mesh-through-the-blender-python-api/
+    # Ref: https://b3d.interplanety.org/en/how-to-create-mesh-through-the-blender-python-api/
     def pocket_on_surface_zigzag(self):
-        """Obj type must Curve and shape 3D and fill"""
+        """Obj type must [Curve or Text] and shape 3D and fill"""
 
         obj = self.obj.copy()
         obj.data = self.obj.data.copy()
@@ -5623,7 +5723,6 @@ class NCNC_OT_GCodeConvert(Operator):
             obj.data.dimensions = '3D'
 
         # Buraya sınama durumlarını ekle.
-        # Metod bittikten sonra Z döngüsünü ekle
 
         # Clear splines that are not cycles.
         for s in obj.data.splines:
@@ -5631,12 +5730,15 @@ class NCNC_OT_GCodeConvert(Operator):
                 obj.data.splines.remove(s)
 
         ms = obj.to_mesh()
+
         if not ms:
             return
 
         # Convert to mesh
         bm = bmesh.new()
         bm.from_mesh(ms)
+
+        deep_remove_to_object(obj)
 
         norm = Vector((-1.0, 1.0, 0))
         norm.normalize()
@@ -5645,14 +5747,19 @@ class NCNC_OT_GCodeConvert(Operator):
         v_x = [v.co.x for v in bm.verts]
         v_y = [v.co.y for v in bm.verts]
 
-        dist = 1 * (math.sqrt(2) / 2)
-
         first_point = Vector((min(v_x), max(v_y), 0))
         max_x = max(v_x)
         min_y = min(v_y)
 
+        dist = (self.conf.carving_range / 2) * (math.sqrt(2) / 2)
+
+        self.block += 1
+        self.add_block(name=f"{self.obj_name}, Pocket, ZigZag", expand="0", enable="1")
+
         # Grups -> Lines -> Line -> (Vert0, Vert1)
         grups = []
+
+        # Çizgi ile meshi tara ve kesişen yerleri grupla
         while first_point.x < max_x or first_point.y > min_y:
             _bm = bm.copy()
 
@@ -5670,15 +5777,12 @@ class NCNC_OT_GCodeConvert(Operator):
                 if (v1.x - v0.x) < dist:
                     continue
 
-                # v0 = v0.xyz# + dist_vec
-                # v1 = v1.xyz# - dist_vec
-
                 # Distance control step
-                step = dist / 10
+                step = dist / 2
 
                 cont = False
 
-                while nCompute.closest_dist_point(_bm, v0) < dist:
+                while nCompute.closest_dist_point(bm, v0) < dist:
                     v0 = v0.lerp(v1, step / (v1 - v0).length)
                     if v0.x > v1.x: # or ((v0 - v1).length < dist):
                         cont = True
@@ -5687,7 +5791,7 @@ class NCNC_OT_GCodeConvert(Operator):
                 if cont:
                     continue
 
-                while nCompute.closest_dist_point(_bm, v1) < dist:
+                while nCompute.closest_dist_point(bm, v1) < dist:
                     v1 = v1.lerp(v0, step / (v1 - v0).length)
                     if v0.x > v1.x: # or ((v0 - v1).length < dist):
                         cont = True
@@ -5696,11 +5800,11 @@ class NCNC_OT_GCodeConvert(Operator):
                 if cont:
                     continue
 
-                if nCompute.closest_dist_line(_bm, v0, v1) < dist:
+                if nCompute.closest_dist_line(bm, v0, v1) < dist:
                     v0_ort = v0.lerp(v1, step / (v1 - v0).length)
                     while v0_ort.x < v1.x and (v1 - v0_ort).length > dist:
 
-                        while nCompute.closest_dist_line(_bm, v0, v0_ort.lerp(v1, step / (v1 - v0_ort).length)) > dist and v0_ort.x < v1.x:
+                        while nCompute.closest_dist_line(bm, v0, v0_ort.lerp(v1, step / (v1 - v0_ort).length)) > dist and v0_ort.x < v1.x:
                             v0_ort = v0_ort.lerp(v1, step / (v1 - v0_ort).length)
 
                         if (v0 - v0_ort).length > dist:
@@ -5708,7 +5812,7 @@ class NCNC_OT_GCodeConvert(Operator):
 
                         v0 = v0_ort.xyz
 
-                        while nCompute.closest_dist_line(_bm, v0, v0_ort.lerp(v1, step / (v1 - v0_ort).length)) < dist and v0_ort.x < v1.x:
+                        while nCompute.closest_dist_line(bm, v0, v0_ort.lerp(v1, step / (v1 - v0_ort).length)) < dist and v0_ort.x < v1.x:
                             v0_ort = v0_ort.lerp(v1, step / (v1 - v0_ort).length)
                             v0 = v0_ort.xyz
 
@@ -5719,31 +5823,84 @@ class NCNC_OT_GCodeConvert(Operator):
             first_point.x += dist
             first_point.y -= dist
 
-        # Burayı düzenle. Çizgiler zigzag çizsin. Kendisine en yakın olan çizgiden devam etsin. Arada engel varsa atlasın.
-        rev = False
-        g_son = [None]
-        for g in grups:
-            for l in g:
-                self.line(*l)
+        line_list = []
+        revrs = False
+        v_prv = None
+        g_ind = 0
 
-                # ...
-            g_son = g
+        # Gruplanmış çizgileri uygun olan uçlarından birleştir.
+        while any(grups):
+            g = grups[g_ind]
+
+            if not len(g):
+                v_prv = None
+
+            elif v_prv:
+                l_min_dist = math.inf
+                l_cur = None
+
+                for l in g:
+
+                    v_lnk = l[1] if revrs else l[0]
+
+                    if (v_lnk - v_prv).length < l_min_dist:
+
+                        l_min_dist = (v_lnk - v_prv).length
+                        l_cur = l
+
+                ok = True
+
+                v_lnk, v_lst = (l_cur[1], l_cur[0]) if revrs else (l_cur[0], l_cur[1])
+
+                for e_bm in bm.edges[:]:
+
+                    if intersect_line_line_2d(v_prv, v_lnk, e_bm.verts[0].co, e_bm.verts[1].co):
+                        ok = False
+                        break
+
+                if ok and nCompute.closest_dist_line(bm, v_prv, v_lnk) > dist: # dist / 2 -> OutLine'a yakınları onayla
+                    line_list.append((v_prv, v_lnk))
+                    line_list.append((v_lnk, v_lst))
+                    #self.line(v_prv, v_lnk)
+                    #self.line(v_lnk, v_lst)
+                    v_prv = v_lst
+                    g.remove(l_cur)
+                    revrs = not revrs
+                else:
+                    v_prv = None
+
+            if len(g) and not v_prv:
+                if revrs:
+                    line_list.append((g[0][1], g[0][0], True))
+                    #self.line(g[0][1], g[0][0], new_line=True)
+                    v_prv = g[0][0]
+                else:
+                    line_list.append((g[0][0], g[0][1], True))
+                    # self.line(g[0][0], g[0][1], new_line=True)
+                    v_prv = g[0][1]
+                g.remove(g[0])
+                revrs = not revrs
+
+            g_ind += 1
+            if len(grups) <= g_ind:
+                grups.reverse()
+                g_ind = 0
+                revrs = not revrs
+                v_prv = None
+
+        for j, k in enumerate(self.dongu):
+            self.step_vector.z = k
+            self.add_block(name=f"{self.obj_name}, Pocket, ZigZag, StepZ{j}", expand="0", enable="1")
+            for l in line_list:
+                self.line(l[0] - self.step_vector, l[1] - self.step_vector, *l[2:])
+                self.line(l[0] - self.step_vector, l[1] - self.step_vector, *l[2:])
 
     def starting_code(self, point_list):
-        max_z = -10000
         r = self.roll
         point1 = point_list[0]
 
-        # Find Max Z Point
-        for nlp in point_list:
-            if nlp.z > max_z:
-                max_z = nlp.z + self.conf.step
-
-        if not self.index_spline and not self.index_dongu:
-            self.first_z = max_z + 1
-
-        #if not self.safe_z :
-        self.safe_z = max(max_z + self.conf.safe_z, self.conf.safe_z, self.safe_z)
+        if not self.safe_z :
+            self.safe_z = self.max_z + self.conf.safe_z #max(max_z + self.conf.safe_z, self.conf.safe_z, self.safe_z)
 
         self.code = f"G0 Z{r(z=self.safe_z)}"
 
@@ -5751,49 +5908,15 @@ class NCNC_OT_GCodeConvert(Operator):
         self.code = f"G0 X{r(x=point1.x)} Y{r(y=point1.y)}"
 
         # Rapid Z, Nearest point
-        self.code = f"G0 Z{r(z=self.first_z)}"
+        self.code = f"G0 Z{r(z=self.max_z)}"
 
         # First Plunge in Z
         self.code = f"G1 Z{r(z=point1.z)} F{self.conf.plunge}"
 
+
 ##################################
 ##################################
 ##################################
-class CNC_OT_Dene(Operator):
-    bl_idname = "ncnc.dene"
-    bl_label = " e"
-    bl_description = " "
-    bl_options = {'REGISTER'}
-
-    def execute(self, context):
-        return self.invoke(context)
-
-    def invoke(self, context, event=None):
-        print(context.active_object)
-        obj = context.active_object
-        if obj.type not in ("MESH", "CURVE"):
-            return
-
-        bm = bmesh.new()
-        bm.from_mesh(context.active_object.to_mesh())
-
-        _bm = bm.copy()
-        cut = bmesh.ops.bisect_plane(_bm, geom=_bm.edges[:] + _bm.faces[:], #dist=0,
-                                     plane_co=(0.0, 0.0, 0),
-                                     plane_no=(0.0, 1.0, 0),
-                                     #clear_outer=False,
-                                     #clear_inner=False
-                                     )
-        verts = []
-        for i in cut["geom_cut"]:
-            if isinstance(i, bmesh.types.BMEdge):
-                for j in i.verts:
-                    verts.append(j.co)
-        print(verts)
-
-        return {"FINISHED"}
-
-
 class NCNC_UL_Objects(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         obj = item.obj
@@ -5866,24 +5989,6 @@ class NCNC_PR_Objects(PropertyGroup):
         del Scene.ncnc_pr_objects
 
 
-# Called when the scene is updated.
-def catch_update(scene, desgraph):
-    for item in scene.ncnc_pr_objects.items:
-        if not item.obj:
-            continue
-        self = item.obj.ncnc_pr_toolpathconfigs
-        obj = self.id_data
-
-        if obj.update_from_editmode() or obj.update_tag() or \
-                self.last_loc != obj.location or self.last_rot != Vector(obj.rotation_euler) or \
-                self.last_sca != obj.scale:
-
-            self.is_updated = True
-            self.last_loc = obj.location.copy()
-            self.last_rot = Vector(obj.rotation_euler)
-            self.last_sca = obj.scale.copy()
-
-
 class NCNC_OT_Objects(Operator):
     bl_idname = "ncnc.objects"
     bl_label = "Objects Operator"
@@ -5950,24 +6055,12 @@ class NCNC_OT_Objects(Operator):
     def timer_add(self, context):
         wm = context.window_manager
         self._timer = wm.event_timer_add(self.delay, window=context.window)
-        self.catch_start()
         return {"RUNNING_MODAL"}
 
     def timer_remove(self, context):
         wm = context.window_manager
         wm.event_timer_remove(self._timer)
-        self.catch_stop()
         return {'CANCELLED'}
-
-    def catch_start(self):
-        posts = bpy.app.handlers.depsgraph_update_post
-        if catch_update not in posts:
-            bpy.app.handlers.depsgraph_update_post.append(catch_update)
-
-    def catch_stop(self):
-        posts = bpy.app.handlers.depsgraph_update_post
-        if catch_update in posts:
-            posts.remove(catch_update)
 
     def modal(self, context, event):
         # ########################### STANDARD
@@ -6008,8 +6101,6 @@ class NCNC_PT_Objects(Panel):
     bl_label = "Toolpaths"  # Included Objects
     bl_idname = "NCNC_PT_objects"
 
-    # bl_parent_id = "NCNC_PT_output"
-
     @classmethod
     def poll(cls, context):
         return context.scene.ncnc_pr_head.tool_gcode
@@ -6043,6 +6134,7 @@ class NCNC_PT_Objects(Panel):
 
         context.scene.ncnc_pr_gcode_create.template_convert(layout, context=context)
 
+
 ##################################
 ##################################
 ##################################
@@ -6068,7 +6160,6 @@ classes = [
     NCNC_OT_Decoder,
     NCNC_OT_Empty,
     NCNC_Prefs,
-    CNC_OT_Dene,
 
     NCNC_PR_Head,
     NCNC_PT_Head,
@@ -6136,7 +6227,8 @@ classes = [
     NCNC_PR_Objects,
     NCNC_OT_Objects,
     NCNC_PT_ToolpathConfigs,
-    NCNC_PT_ToolpathConfigsDetails,
+    NCNC_PT_ToolpathConfigsDetailConverting,
+    NCNC_PT_ToolpathConfigsDetailPocket,
     NCNC_PT_Objects,
 ]
 
@@ -6149,6 +6241,7 @@ def register():
 def unregister():
     for i in classes[::-1]:
         bpy.utils.unregister_class(i)
+    catch_stop()
 
 
 if __name__ == "__main__":
