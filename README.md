@@ -40,7 +40,7 @@ This add-on; Allows you to control the CNC machine and generate G-code to millin
   * [Wiki](https://github.com/manahter/nCNC/wiki)
   * [Youtube](https://www.youtube.com/watch?v=mPNej4vpJvc&list=PLEhXwZnmfmZUFy7qmVqo_J2PuXGDBswYh)
 
-[![Jog](https://user-images.githubusercontent.com/73780835/98465377-bef0bd00-21d9-11eb-8c31-b40152f22837.gif)](https://youtu.be/6yTcJT8kL2c?t=286 "go Youtube Video")
+[![Jog-1024x400](https://user-images.githubusercontent.com/73780835/98465377-bef0bd00-21d9-11eb-8c31-b40152f22837.gif)](https://youtu.be/6yTcJT8kL2c?t=286 "go Youtube Video")
 
 ## Feature Done
 ### v0.6.6
