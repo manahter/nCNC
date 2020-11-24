@@ -47,6 +47,7 @@ This add-on; Allows you to control the CNC machine and generate G-code to millin
 * Added - transparency to G code.
 * Added - Make the G code lines draw in front of others
 * Changed - Default Theme
+* Show / hide button for Included Objects
 * [Click for details](https://github.com/manahter/nCNC/releases/tag/v0.6.7)
 
 ### v0.6.6
