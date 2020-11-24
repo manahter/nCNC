@@ -43,6 +43,12 @@ This add-on; Allows you to control the CNC machine and generate G-code to millin
 [![Jog-1024x400](https://user-images.githubusercontent.com/73780835/98465377-bef0bd00-21d9-11eb-8c31-b40152f22837.gif)](https://youtu.be/6yTcJT8kL2c?t=286 "go Youtube Video")
 
 ## Feature Done
+### v0.6.7
+* Added - transparency to G code.
+* Added - Make the G code lines draw in front of others
+* Changed - Default Theme
+* [Click for details](https://github.com/manahter/nCNC/releases/tag/v0.6.7)
+
 ### v0.6.6
 * Added, pocket engrave on the surface
 ![Pocket](https://user-images.githubusercontent.com/73780835/99889117-5f77c000-2c63-11eb-86de-6b285359a17c.gif)
