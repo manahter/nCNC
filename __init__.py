@@ -51,7 +51,7 @@ bl_info = {
     "name": "nCNC",
     "description": "CNC Controls, G code operations",
     "author": "Manahter",
-    "version": (0, 6, 6),
+    "version": (0, 6, 7),
     "blender": (2, 90, 0),
     "location": "View3D",
     "category": "Generic",
@@ -67,9 +67,9 @@ tr_translate = str.maketrans("ÇĞİÖŞÜçğıöşü", "CGIOSUcgiosu")
 
 """
 Release Notes:
-    * Viewporttaki Text objesi, Curve'ye çevrilmeden G koduna dönüştürülebiliyor.
-    * Yüzeye cep açılabiliyor.
-    * Cepteki işleme aralığı değiştirlebiliyor.
+    * 3D alanda G kodu görüntülemede, transparanlık sorunu düzeltildi.
+    * G Kodu görüntülemede, nesnenin önünde görünme sorunu düzeltildi.
+    * Ön tanımlı tema değiştirildi.
 """
 
 # TODO:
@@ -79,9 +79,16 @@ Eklenecek Özellikler;
     * Toolpaths HeaderDraw'a Göster/Gizle Ekle -> Objeler için
     * Sadece belli bir objenin yollarını (kodunu) göster/gizle özelliği ekle
     * Koddaki hatalı kısımların çizgisi kırmızı olacak şekilde düzenle. Vision'a da eklenebilir
-    * Kod satırları için TextEditör benzeri ayrı bir alan oluşturulabilir mi araştır.
+    * Kod Çizgilerinin ucuna yönünü belirten bir ok koy:
+        https://github.com/blender/blender/blob/6c9178b183f5267e07a6c55497b6d496e468a709/release/scripts/templates_py/gizmo_custom_geometry.py
+        https://blender.stackexchange.com/a/148300
 """
 
+"""
+Yapılamayanlar;
+    * Kod satırları için TextEditör benzeri ayrı bir alan oluşturulabilir mi araştır.
+        - Özelleştirilmiş Yeni Edtör alanı oluşturulamıyor. Node Editor gib alanlar ancak oluşturulabiliyor.
+"""
 
 class NCNC_Prefs(AddonPreferences):
     # This must match the addon name, use '__package__'
@@ -4150,6 +4157,12 @@ def handle_remove(keycode) -> handles:
     return handle_list
 
 
+
+
+
+
+
+
 class NCNC_PR_Vision(PropertyGroup):
 
     # ##########################
@@ -4172,15 +4185,15 @@ class NCNC_PR_Vision(PropertyGroup):
     # ##########################
     # ################## Presets
     def update_presets(self, context):
-        prs = {"def": (("g0", (.5, .5, .5, 0.5), 1),
-                       ("g1", (0, .44, .77, 0.5), 2),
-                       ("g2", (.77, .2, .3, 0.5), 2),
-                       ("g3", (.3, .77, .2, 0.5), 2),
-                       ("gp", (.1, .1, .1, 1), 2),
+        prs = {"def": (("g0", (.073, .07, .07, 0.4), 1),
+                       ("g1", (.8, .5, .3, 0.5), 2),
+                       ("g2", (1, .45, .3, 0.5), 2),
+                       ("g3", (1, .45, .3, 0.5), 2),
+                       ("gp", (1, .6, .2, 1), 1.5),
                        ("dash", (1, 1, 1, .9), 14),
-                       ("status", (1, .8, .2, .9), 14),
-                       ("pos", (1, .8, .2, .9), 14),
-                       ("mill", (.9, .25, .1, .9), 3),
+                       ("status", (1, .66, .45, .9), 14),
+                       ("pos", (1, .66, .45, .9), 14),
+                       ("mill", (.9, .6, .45, .9), 3),
                        ),
                "blu": (("gcode", (0, .44, .77, 0.5), 1),
                        ("g0", (.2, .3, .5, .5), 1),
@@ -4200,6 +4213,26 @@ class NCNC_PR_Vision(PropertyGroup):
                        ("dash", (1, 1, 1, .9), 14),
                        ("mill", (.7, .8, 1, 1), 3),
                        ),
+               "bej": (("g0", (.073, .07, .07, 0.5), 1),
+                       ("g1", (.8, .5, .3, 0.5), 2),
+                       ("g2", (1, .45, .3, 0.5), 2),
+                       ("g3", (1, .45, .3, 0.5), 2),
+                       ("gp", (1, .6, .2, 1), 1.5),
+                       ("dash", (1, 1, 1, .9), 14),
+                       ("status", (1, .66, .45, .9), 14),
+                       ("pos", (1, .66, .45, .9), 14),
+                       ("mill", (.9, .6, .45, .9), 3),
+                       ),
+               "cfl": (("g0", (.5, .5, .5, 0.5), 1),
+                       ("g1", (0, .44, .77, 0.5), 2),
+                       ("g2", (.77, .2, .3, 0.5), 2),
+                       ("g3", (.3, .77, .2, 0.5), 2),
+                       ("gp", (.1, .1, .1, 1), 2),
+                       ("dash", (1, 1, 1, .9), 14),
+                       ("status", (1, .8, .2, .9), 14),
+                       ("pos", (1, .8, .2, .9), 14),
+                       ("mill", (.9, .25, .1, .9), 3),
+                       ),
                }
 
         for key, color, thick in prs[self.presets]:
@@ -4216,9 +4249,18 @@ class NCNC_PR_Vision(PropertyGroup):
         items=[("def", "Default", ""),
                ("bla", "Black", ""),
                ("whi", "White", ""),
-               ("blu", "Blue", "")],
+               ("blu", "Blue", ""),
+               ("bej", "Beige", ""),
+               ("cfl", "Colorful", ""),
+               ],
         name="Presets",
         update=update_presets
+    )
+
+    infront: BoolProperty(
+        name="In Front",
+        description="Make the G code lines draw in front of others",
+        default=False
     )
 
     # ##########################
@@ -4303,14 +4345,14 @@ class NCNC_PR_Vision(PropertyGroup):
         size=4,
         min=0.0,
         max=1.0,
-        default=(1, .8, .2, 0.9)
+        default=(1, .66, .45, .9)
     )
     color_pos: FloatVectorProperty(
         subtype='COLOR',
         size=4,
         min=0.0,
         max=1.0,
-        default=(1, .8, .2, 0.9)
+        default=(1, .66, .45, .9)
     )
 
     def update_thick_dash(self, context):
@@ -4443,6 +4485,12 @@ class NCNC_PR_Vision(PropertyGroup):
         if not pr_txt:
             return
 
+        # for transparent
+        bgl.glEnable(bgl.GL_BLEND)
+
+        if not self.infront:
+            bgl.glEnable(bgl.GL_DEPTH_TEST)
+
         pr_txt = pr_txt.ncnc_pr_text
         if pr_txt.event:
             cls.gcode_batchs["p"] = batch_for_shader(cls.gcode_shaders["p"],
@@ -4477,6 +4525,12 @@ class NCNC_PR_Vision(PropertyGroup):
             cls.gcode_shaders[i].uniform_float("color", color)
             cls.gcode_batchs[i].draw(cls.gcode_shaders[i])
 
+        # for transparent
+        bgl.glDisable(bgl.GL_BLEND)
+
+        if not self.infront:
+            bgl.glDepthMask(bgl.GL_TRUE)
+
     gcode_shaders = {}
     gcode_batchs = {}
     gcode_last = ""
@@ -4496,7 +4550,7 @@ class NCNC_PR_Vision(PropertyGroup):
 
     thick_gcode: FloatProperty(name="General", default=2.0, min=0, max=10, description="Line Thickness",
                                update=update_thick_gcode)
-    thick_gp: FloatProperty(name="Point", default=3.0, min=0, max=10, description="Point Thickness")
+    thick_gp: FloatProperty(name="Point", default=1.5, min=0, max=10, description="Point Thickness")
     thick_gc: FloatProperty(name="Current", default=3.0, min=0, max=10, description="Line Thickness")
     thick_g0: FloatProperty(name="Rapid", default=1.0, min=0, max=10, description="Line Thickness")
     thick_g1: FloatProperty(name="Linear", default=2.0, min=0, max=10, description="Line Thickness")
@@ -4522,7 +4576,7 @@ class NCNC_PR_Vision(PropertyGroup):
         size=4,
         min=0.0,
         max=1.0,
-        default=(.1, .1, .1, .5)
+        default=(1, .6, .2, 1)
     )
     color_gc: FloatVectorProperty(
         name='Current Code Line Color',
@@ -4538,7 +4592,7 @@ class NCNC_PR_Vision(PropertyGroup):
         size=4,
         min=0.0,
         max=1.0,
-        default=(.5, .5, .5, .5)
+        default=(.073, .07, .07, 0.4)
     )
     color_g1: FloatVectorProperty(
         name='Linear Color',
@@ -4547,7 +4601,7 @@ class NCNC_PR_Vision(PropertyGroup):
         min=0.0,
         max=1.0,
         # default=(0.7, 0.5, 0.2, 0.5)
-        default=(0, .44, .77, 0.5)
+        default=(.8, .5, .3, 0.5)
     )
     color_g2: FloatVectorProperty(
         name='Arc Color CW',
@@ -4555,7 +4609,7 @@ class NCNC_PR_Vision(PropertyGroup):
         size=4,
         min=0.0,
         max=1.0,
-        default=(.77, .2, .3, 0.5)
+        default=(1, .45, .3, 0.5)
     )
     color_g3: FloatVectorProperty(
         name='Arc Color CCW',
@@ -4563,7 +4617,7 @@ class NCNC_PR_Vision(PropertyGroup):
         size=4,
         min=0.0,
         max=1.0,
-        default=(.3, .77, .2, 0.5)
+        default=(1, .45, .3, 0.5)
     )
 
     # ##########################
@@ -4598,7 +4652,7 @@ class NCNC_PR_Vision(PropertyGroup):
         size=4,
         min=0.0,
         max=1.0,
-        default=(0.9, 0.25, 0.1, 0.5)
+        default=(.9, .6, .45, .9)
     )
 
     thick_mill: FloatProperty(name="Arc CCW", default=3.0, min=0, max=10, description="Line Thickness")
@@ -4622,10 +4676,22 @@ class NCNC_PR_Vision(PropertyGroup):
                                               'LINES',
                                               {"pos": cls.mill_lines(*pos)})
 
+        # for transparent
+        bgl.glEnable(bgl.GL_BLEND)
+
+        if not self.infront:
+            bgl.glEnable(bgl.GL_DEPTH_TEST)
+
         bgl.glLineWidth(self.thick_mill)
         cls.mill_shader.bind()
         cls.mill_shader.uniform_float("color", self.color_mill)
         cls.mill_batch.draw(cls.mill_shader)
+
+        # for transparent
+        bgl.glDisable(bgl.GL_BLEND)
+
+        if not self.infront:
+            bgl.glDepthMask(bgl.GL_TRUE)
 
     @classmethod
     def mill_lines(cls, x, y, z):
@@ -4764,7 +4830,7 @@ class NCNC_PT_VisionThemes(Panel):
         pr_vis = context.scene.ncnc_pr_vision
         layout = self.layout
 
-        layout.prop(pr_vis, "presets", text="")
+        layout.prop(pr_vis, "presets", text="Presets")
 
         overlay = context.space_data.overlay
 
@@ -4775,6 +4841,9 @@ class NCNC_PT_VisionThemes(Panel):
         row.prop(overlay, "show_axis_x", text="X", toggle=True)
         row.prop(overlay, "show_axis_y", text="Y", toggle=True)
         row.prop(overlay, "show_axis_z", text="Z", toggle=True)
+
+        row = layout.row(heading="Show")
+        row.prop(pr_vis, "infront")
 
 
 class NCNC_PT_VisionThemesGcode(Panel):
@@ -5089,6 +5158,7 @@ class NCNC_PR_ToolpathConfigs(PropertyGroup):
     carving_range: FloatProperty(
         name="Carving Range (mm)",
         description="The tool diameter in mm is entered",
+        min=0.2,
         default=2,
         step=50,
         update=reload_gcode
@@ -5269,13 +5339,9 @@ class NCNC_PT_ToolpathConfigsDetailConverting(Panel):
         col.enabled = props.included  # Tip uygun değilse buraları pasif yapar
         if obj.type == "CURVE":
 
-            # col.prop(obj.data, "resolution_u", slider=True, text="Resolution Obj General")
-            # if obj.data.splines.active:
-            #     col.prop(obj.data.splines.active, "resolution_u", slider=True, text="Resolution Spline in Obj")
-
-            col.prop(props, "resolution_general", slider=True, text="Resolution Obj General")
+            col.prop(props, "resolution_general", slider=True, text="Resolution Curve (General)")
             if obj.data.splines.active:
-                col.prop(props, "resolution_spline", slider=True, text="Resolution Spline in Obj")
+                col.prop(props, "resolution_spline", slider=True, text="Resolution Spline (in Curve)")
 
 
 class NCNC_PT_ToolpathConfigsDetailPocket(Panel):
@@ -5977,6 +6043,17 @@ class NCNC_PR_Objects(PropertyGroup):
         update=update_active_item_index,
     )
 
+    def hide_in_viewport(self, context):
+        for i in self.items:
+            if i.obj:
+                i.obj.id_data.hide_viewport = self.hide_in_viewport
+
+    hide_in_viewport: BoolProperty(
+        name="Hide in Viewport",
+        default=False,
+        update=hide_in_viewport
+    )
+
     @classmethod
     def register(cls):
         Scene.ncnc_pr_objects = PointerProperty(
@@ -6134,6 +6211,13 @@ class NCNC_PT_Objects(Panel):
 
         context.scene.ncnc_pr_gcode_create.template_convert(layout, context=context)
 
+    def draw_header_preset(self, context):
+        pr_obs = context.scene.ncnc_pr_objects
+        self.layout.prop(pr_obs, "hide_in_viewport",
+                         text="",
+                         icon="HIDE_ON" if pr_obs.hide_in_viewport else "HIDE_OFF",
+                         emboss=False
+                         )
 
 ##################################
 ##################################
