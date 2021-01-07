@@ -14,7 +14,7 @@ NOTE: Some implementations may only support a subset of the settings.
 """
 
 import time
-import nCNC.modules.serial as serial
+from .. import serial
 
 
 class RS485Settings(object):

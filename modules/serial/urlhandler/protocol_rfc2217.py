@@ -7,4 +7,4 @@
 #
 # SPDX-License-Identifier:    BSD-3-Clause
 
-from nCNC.modules.serial.rfc2217 import Serial  # noqa
+from ..rfc2217 import Serial  # noqa

@@ -24,9 +24,9 @@ import re
 #~ if sys.platform == 'cli':
 #~ else:
 if os.name == 'nt':  # sys.platform == 'win32':
-    from nCNC.modules.serial.tools.list_ports_windows import comports
+    from .list_ports_windows import comports
 elif os.name == 'posix':
-    from nCNC.modules.serial.tools.list_ports_posix import comports
+    from .list_ports_posix import comports
 #~ elif os.name == 'java':
 else:
     raise ImportError("Sorry: no implementation for your platform ('{}') available".format(os.name))

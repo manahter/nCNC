@@ -11,7 +11,7 @@ from bpy.props import (
 )
 from mathutils import Vector
 from bpy.types import PropertyGroup, Object
-from nCNC.assets.icons import icons
+from ...assets.icons import icons
 
 
 class S:

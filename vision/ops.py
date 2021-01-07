@@ -1,7 +1,7 @@
 import time
 from bpy.types import Operator
 from bpy.props import BoolProperty
-from nCNC.utils.modal import register_modal, unregister_modal
+from ..utils.modal import register_modal, unregister_modal
 
 
 class NCNC_OT_Vision(Operator):

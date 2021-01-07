@@ -12,9 +12,9 @@ import os
 import sys
 import threading
 
-import nCNC.modules.serial
-from nCNC.modules.serial.tools.list_ports import comports
-from nCNC.modules.serial.tools import hexlify_codec
+from ... import serial
+from .list_ports import comports
+from . import hexlify_codec
 
 # pylint: disable=wrong-import-order,wrong-import-position
 
@@ -177,7 +177,7 @@ else:
 class Transform(object):
     """do-nothing: forward all data unchanged"""
     def rx(self, text):
-        """text received from nCNC.modules.serial port"""
+        """text received from serial port"""
         return text
 
     def tx(self, text):
@@ -333,7 +333,7 @@ def ask_for_port():
 
 class Miniterm(object):
     """\
-    Terminal application. Copy data from nCNC.modules.serial port to console and vice versa.
+    Terminal application. Copy data from serial port to console and vice versa.
     Handle special keys from the console to show menu etc.
     """
 

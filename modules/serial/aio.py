@@ -16,7 +16,7 @@ Windows event loops can not wait for serial ports with the current
 implementation. It should be possible to get that working though.
 """
 import asyncio
-import nCNC.modules.serial as serial
+from .. import serial
 import logger
 
 

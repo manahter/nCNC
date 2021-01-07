@@ -19,9 +19,9 @@ from ctypes.wintypes import LONG
 from ctypes.wintypes import ULONG
 from ctypes.wintypes import HKEY
 from ctypes.wintypes import BYTE
-import nCNC.modules.serial as serial
-from nCNC.modules.serial.win32 import ULONG_PTR
-from nCNC.modules.serial.tools import list_ports_common
+from ... import serial
+from ..win32 import ULONG_PTR
+from ..tools import list_ports_common
 
 
 def ValidHandle(value, func, arguments):

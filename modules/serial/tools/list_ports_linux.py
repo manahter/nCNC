@@ -10,7 +10,7 @@
 
 import glob
 import os
-from nCNC.modules.serial.tools import list_ports_common
+from . import list_ports_common
 
 
 class SysFS(list_ports_common.ListPortInfo):

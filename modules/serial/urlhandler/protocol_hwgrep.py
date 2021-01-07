@@ -20,8 +20,8 @@
 # n=<N>     pick the N'th entry instead of the first one (numbering starts at 1)
 # skip_busy tries to open port to check if it is busy, fails on posix as ports are not locked!
 
-import nCNC.modules.serial as serial
-from nCNC.modules.serial.tools import list_ports
+from ... import serial
+from ..tools import list_ports
 
 try:
     basestring

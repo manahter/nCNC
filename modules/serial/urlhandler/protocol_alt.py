@@ -21,7 +21,7 @@ try:
 except ImportError:
     import urllib.parse as urlparse
 
-import nCNC.modules.serial as serial
+from ... import serial
 
 
 def serial_class_for_url(url):

@@ -1,7 +1,6 @@
 from bpy.types import Panel, PropertyGroup, Operator, UIList, AddonPreferences
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 import inspect
-import nCNC
 import sys
 
 register_types = (Panel, PropertyGroup, Operator, UIList, AddonPreferences, ImportHelper, ExportHelper)

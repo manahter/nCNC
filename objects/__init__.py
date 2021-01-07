@@ -1,5 +1,5 @@
 
-# from nCNC.registerer import register_in_dir
+# from ..registerer import register_in_dir
 # import os
 #
 #
@@ -12,7 +12,7 @@
 #
 # register_in_dir(__name__)
 
-from nCNC.registerer import classes
+from ..registerer import classes
 from .configs.props import NCNC_PR_ObjectConfigs
 from .configs.ops import NCNC_OT_ObjectConfigs
 from .configs.panel import (

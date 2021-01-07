@@ -24,7 +24,7 @@
 import ctypes
 import ctypes.util
 
-from nCNC.modules.serial.tools import list_ports_common
+from . import list_ports_common
 
 iokit = ctypes.cdll.LoadLibrary(ctypes.util.find_library('IOKit'))
 cf = ctypes.cdll.LoadLibrary(ctypes.util.find_library('CoreFoundation'))

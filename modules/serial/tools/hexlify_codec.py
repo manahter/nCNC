@@ -19,7 +19,7 @@ Therefore decoding is binary to text and thus converting binary data to hex dump
 """
 
 import codecs
-import nCNC.modules.serial as serial
+from ... import serial
 
 
 try:

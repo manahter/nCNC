@@ -25,7 +25,7 @@ try:
 except ImportError:
     import Queue as queue
 
-from nCNC.modules.serial.serialutil import SerialBase, SerialException, to_bytes, iterbytes, writeTimeoutError, portNotOpenError
+from ..serialutil import SerialBase, SerialException, to_bytes, iterbytes, writeTimeoutError, portNotOpenError
 
 # map log level names to constants. used in from_url()
 LOGGER_LEVELS = {

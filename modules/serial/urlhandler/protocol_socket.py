@@ -26,7 +26,7 @@ try:
 except ImportError:
     import urllib.parse as urlparse
 
-from nCNC.modules.serial.serialutil import SerialBase, SerialException, to_bytes, \
+from ..serialutil import SerialBase, SerialException, to_bytes, \
     portNotOpenError, writeTimeoutError, Timeout
 
 # map log level names to constants. used in from_url()

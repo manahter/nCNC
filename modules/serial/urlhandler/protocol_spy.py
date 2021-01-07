@@ -23,7 +23,7 @@
 import sys
 import time
 
-import nCNC.modules.serial as serial
+from ... import serial
 
 try:
     import urlparse
