@@ -96,17 +96,43 @@ class NCNC_OT_GCodeConvert(Operator):
         if context.active_object and context.active_object.mode == "EDIT":
             bpy.ops.object.editmode_toggle()
 
-        # Copy object
-        obj_orj = bpy.data.objects[self.obj_name]
-        obj = obj_orj.copy()
+        # İşlenecek kütüğü alıyoruz.
+        stock = context.scene.ncnc_pr_objects.stock
 
-        # Copy data
+        # Hedef Obje alınır
+        obj_orj = bpy.data.objects[self.obj_name]
+
+        # Eğer Yazı ise, objenin datası Curve'ye çevrilerek alınır
         if obj_orj.type == "FONT":
+            obj = obj_orj.copy()
             obj.data = get_data_text_object(context, obj_orj)
             if not obj.data:
                 return {'CANCELLED'}
-        else:
+
+        # Curve ise veya kütük yok ise direkt kopyala
+        elif obj_orj.type == "CURVE" or not stock:
+            obj = obj_orj.copy()
             obj.data = obj.data.copy()
+
+        # Eğer Mesh ise ve kütük var ise kütükten çıkart
+        else:
+            # Kütüğün kopyasını oluşturuyoruz
+            obj = stock.copy()
+
+            # Hedef objeyi modifier uygulayarak kütükten çıkartıyoruz.
+            mod_bool = stock.modifiers.new('my_bool_mod', 'BOOLEAN')
+            mod_bool.operation = 'DIFFERENCE'
+            mod_bool.object = obj_orj
+
+            # Grafiklerden modifiye edilmiş objeyi alıyoruz.
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            object_eval = stock.evaluated_get(depsgraph)
+
+            # Oluşan objenin datasını kopyalıyoruz
+            obj.data = bpy.data.meshes.new_from_object(object_eval)
+
+            # Orjinal Kütüğe eklediğimiz modifierleri temizliyoruz ki sonradan sorun çıkmasın
+            stock.modifiers.clear()
 
         conf = obj_orj.ncnc_pr_objectconfigs
         conf.is_updated = False
@@ -115,7 +141,7 @@ class NCNC_OT_GCodeConvert(Operator):
         # Report: self is running
         self.run_index = conf.im_running()
 
-        # Bu aşamada değişim takibini durduruyoruz. (Sadece bu kopyalanmış obje için)
+        # Bu aşamada olay takibini durduruyoruz. (Sadece bu kopyalanmış obje için)
         # Copy object confs
         obj.ncnc_pr_objectconfigs.included = False
         obj.ncnc_pr_objectconfigs.is_updated = False
@@ -129,26 +155,42 @@ class NCNC_OT_GCodeConvert(Operator):
         self.dongu.clear()
         self.index_spline = 0
         self.index_dongu = 0
-
         ##########################################
         ##########################################
 
-        # To avoid the error in 2D. Problem -> transform_apply( .. )
+        # Eğrilerde 2D'de hata çıkabildiği için, 3D'ye alıyoruz -> transform_apply( .. ) -> Gerekli mi tekrar kontrol et
+        if obj.type in ("CURVE", "FONT"):
+            obj.data.dimensions = "3D"
 
-        obj.data.dimensions = "3D"
-
+        # Objenin boyutlarını uyguluyoruz.
         obj.data.transform(obj.matrix_world)
         obj.matrix_world = Matrix()
         self.obj = obj
 
-        # Find Max Z
-        _ob = obj.copy()
-        _ob.data = _ob.data.copy()
-        self.max_z = max([v.co.z for v in _ob.to_mesh().vertices])
-        deep_remove_to_object(_ob)
+        # Mesh'e dönüştürüp, Z'de uç noktaları buluyoruz
+        verts = [v.co.z for v in obj.to_mesh().vertices]
+        self.max_z = max(verts)
+        self.min_z = min(verts)
+
+        # Oluşan mesh'i temizliyoruz
+        obj.to_mesh_clear()
 
         ##########################################
         ##########################################
+
+
+
+
+
+        # TODO !!! işte Mesh objeyi tam burada z ekseninde dilimleyeceğiz ve dilimleri poly'ye çevireceğiz.
+
+
+
+
+
+        ##########################################
+        ##########################################
+        # Z adımı, derinlikten büyükse veya spline yoksa işlemi bitir
         if conf.step > conf.depth or not len(self.obj.data.splines):
             return self.timer_remove(context, only_object=True)
 

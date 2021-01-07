@@ -67,3 +67,26 @@ class NCNC_PT_Objects(Panel):
                          icon="HIDE_ON" if pr_obs.hide_in_viewport else "HIDE_OFF",
                          emboss=False
                          )
+
+
+class NCNC_PT_Stock(Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "nCNC"
+    bl_label = "Stock"
+    bl_idname = "NCNC_PT_objectstock"
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.ncnc_pr_head.tool_gcode
+
+    def draw(self, context):
+        layout = self.layout
+
+        pr = context.scene.ncnc_pr_objects
+
+        row = layout.row(align=True)
+        row.prop(pr, "stock")
+        row.prop(pr, "stock_wire",
+                 text="",
+                 icon="MOD_WIREFRAME" if pr.stock_wire else "SNAP_VOLUME")

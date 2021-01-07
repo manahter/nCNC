@@ -22,9 +22,10 @@ from .configs.panel import (
 )
 from .props import NCNC_PR_Objects
 from .ops import NCNC_OT_Objects
-from .panel import NCNC_UL_Objects, NCNC_PT_Objects
+from .panel import NCNC_UL_Objects, NCNC_PT_Objects, NCNC_PT_Stock
 
 classes.extend([
+    NCNC_PT_Stock,
     NCNC_PR_ObjectConfigs,
     NCNC_OT_ObjectConfigs,
     NCNC_UL_Objects,

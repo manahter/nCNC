@@ -35,8 +35,9 @@ class NCNC_PT_ObjectConfigs(Panel):
         row.prop(obj, "name", text="")
 
         isok = props.check_for_include(obj)
+        tip_egri = obj.type in ("CURVE", "FONT")
         if isok:
-            if obj.type in ("CURVE", "FONT"):
+            if tip_egri:
                 a = row.split()
                 a.prop(props, "as_line",
                        icon="IPO_CONSTANT" if props.as_line else "IPO_EASE_IN_OUT",
@@ -60,7 +61,10 @@ class NCNC_PT_ObjectConfigs(Panel):
         col.enabled = props.included  # Tip uygun değilse buraları pasif yapar
         col.prop(props, "safe_z")
         col.prop(props, "step")
-        col.prop(props, "depth")
+        if tip_egri:
+            col.prop(props, "depth")
+        else:
+            col.label()
 
         col = layout.column(align=True)
         col.enabled = props.included  # Tip uygun değilse buraları pasif yapar
