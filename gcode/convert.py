@@ -12,6 +12,10 @@ from ..utils.nVector import nVector
 from ..utils import nCompute
 from ..objects.configs.props import S
 
+# TODO !!!
+#   Text için; Eğer 3D şekil verildiyse, 3D olarak al. Değilse, Eğri olarak al
+#
+
 
 def deep_remove_to_object(obj):
     obj.to_mesh_clear()
@@ -88,6 +92,7 @@ class NCNC_OT_GCodeConvert(Operator):
         if not self.obj_name:
             return {'CANCELLED'}
 
+        # Aktif obje Edit moddaysa, obje moduna çeviriyoruz ki işlem yapabilelim
         if context.active_object and context.active_object.mode == "EDIT":
             bpy.ops.object.editmode_toggle()
 
@@ -106,9 +111,11 @@ class NCNC_OT_GCodeConvert(Operator):
         conf = obj_orj.ncnc_pr_objectconfigs
         conf.is_updated = False
 
+        # Şuan bu obje Convert işleminde olduğunu belirtmek için bayrak çekiyoruz
         # Report: self is running
         self.run_index = conf.im_running()
 
+        # Bu aşamada değişim takibini durduruyoruz. (Sadece bu kopyalanmış obje için)
         # Copy object confs
         obj.ncnc_pr_objectconfigs.included = False
         obj.ncnc_pr_objectconfigs.is_updated = False

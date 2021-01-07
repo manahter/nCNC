@@ -62,13 +62,13 @@ from .assets.icons import icons_register, icons_unregister
 
 icons_register()
 
-from . import registerer
-from . import head
-from . import gcode
-from . import machine
-from . import scene
-from . import vision
-from . import objects
+from .import registerer
+from .import head
+from .import gcode
+from .import machine
+from .import scene
+from .import vision
+from .import objects
 from .utils.catch import catch_stop
 
 
