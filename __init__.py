@@ -57,18 +57,19 @@ class NCNC_Prefs(AddonPreferences):
     UIList -> _UL_
 """
 
-from nCNC.assets.icons import icons_register, icons_unregister
+
+from .assets.icons import icons_register, icons_unregister
 
 icons_register()
 
-import nCNC.registerer
-import nCNC.head
-import nCNC.gcode
-import nCNC.machine
-import nCNC.scene
-import nCNC.vision
-import nCNC.objects
-from nCNC.utils.catch import catch_stop
+from . import registerer
+from . import head
+from . import gcode
+from . import machine
+from . import scene
+from . import vision
+from . import objects
+from .utils.catch import catch_stop
 
 
 class NCNC_OT_Empty(Operator):

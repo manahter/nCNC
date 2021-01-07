@@ -72,8 +72,8 @@ try:
 except ImportError:
     import queue as Queue
 
-import nCNC.modules.serial as serial
-from nCNC.modules.serial.serialutil import SerialBase, SerialException, to_bytes, \
+from .. import serial
+from .serialutil import SerialBase, SerialException, to_bytes, \
     iterbytes, portNotOpenError, Timeout
 
 # port string is expected to be something like this:
@@ -1005,7 +1005,7 @@ class PortManager(object):
 
     def check_modem_lines(self, force_notification=False):
         """\
-        read control lines from nCNC.modules.serial port and compare the last value sent to remote.
+        read control lines from serial port and compare the last value sent to remote.
         send updates on changes.
         """
         modemstate = (

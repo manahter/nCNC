@@ -3,7 +3,7 @@ import bpy
 from bpy.types import Operator, PropertyGroup, Scene
 from bpy.props import BoolProperty, IntProperty, FloatVectorProperty, PointerProperty
 
-from nCNC.utils.catch import catch_start
+from ..utils.catch import catch_start
 
 
 class NCNC_PR_GCodeCreate(PropertyGroup):

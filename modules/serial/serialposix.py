@@ -35,8 +35,8 @@ import struct
 import sys
 import termios
 
-import nCNC.modules.serial as serial
-from nCNC.modules.serial.serialutil import SerialBase, SerialException, to_bytes, \
+from .. import serial
+from .serialutil import SerialBase, SerialException, to_bytes, \
     portNotOpenError, writeTimeoutError, Timeout
 
 

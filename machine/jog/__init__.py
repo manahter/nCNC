@@ -1,4 +1,4 @@
-from nCNC.registerer import register_in_dir
+from ...registerer import register_in_dir
 import os
 
 

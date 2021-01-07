@@ -12,10 +12,10 @@
 # pylint: disable=invalid-name,too-few-public-methods
 import ctypes
 import time
-from nCNC.modules.serial import win32
+from ..serial import win32
 
-import nCNC.modules.serial as serial
-from nCNC.modules.serial.serialutil import SerialBase, SerialException, to_bytes, portNotOpenError, writeTimeoutError
+from .. import serial
+from .serialutil import SerialBase, SerialException, to_bytes, portNotOpenError, writeTimeoutError
 
 
 class Serial(SerialBase):

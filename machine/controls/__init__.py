@@ -1,4 +1,4 @@
-from nCNC.registerer import classes
+from ...registerer import classes
 from .props import NCNC_PR_Machine
 from .ops import NCNC_OT_Machine
 from .panel import (

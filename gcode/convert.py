@@ -8,9 +8,9 @@ from mathutils import Matrix, Vector
 from mathutils.geometry import intersect_line_line_2d
 from bpy.props import StringProperty, FloatProperty, IntProperty, FloatVectorProperty
 
-from nCNC.utils.nVector import nVector
-import nCNC.utils.nCompute as nCompute
-from nCNC.objects.configs.props import S
+from ..utils.nVector import nVector
+from ..utils import nCompute
+from ..objects.configs.props import S
 
 
 def deep_remove_to_object(obj):
@@ -168,6 +168,7 @@ class NCNC_OT_GCodeConvert(Operator):
         ##########################################
         ##########################################
 
+        print("Başladık")
         context.window_manager.modal_handler_add(self)
         return self.timer_add(context)
 

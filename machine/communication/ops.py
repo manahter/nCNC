@@ -5,7 +5,7 @@ from bpy.types import Operator
 from bpy.props import BoolProperty, EnumProperty
 
 from .. import dev_get
-from nCNC.utils.modal import register_modal, unregister_modal
+from ...utils.modal import register_modal, unregister_modal
 
 tr_translate = str.maketrans("ÇĞİÖŞÜçğıöşü", "CGIOSUcgiosu")
 

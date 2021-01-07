@@ -3,10 +3,10 @@ from bpy.types import PropertyGroup, Scene
 import bpy
 import time
 
-from nCNC.modules.serial import Serial
+from ...modules.serial import Serial
 
 # USB portlarını bulur...
-from nCNC.modules.serial.tools.list_ports import comports
+from ...modules.serial.tools.list_ports import comports
 
 from .. import dev_get, dev_set
 

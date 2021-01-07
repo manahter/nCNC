@@ -9,7 +9,7 @@
 
 import System
 import System.IO.Ports
-from nCNC.modules.serial.serialutil import *
+from .serialutil import *
 
 # must invoke function with byte array, make a helper to convert strings
 # to byte arrays

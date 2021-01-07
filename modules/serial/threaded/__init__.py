@@ -9,7 +9,7 @@
 """\
 Support threading with serial ports.
 """
-import nCNC.modules.serial as serial
+from ... import serial
 import threading
 
 
@@ -36,7 +36,7 @@ class Protocol(object):
 
 class Packetizer(Protocol):
     """
-    Read binary packets from nCNC.modules.serial port. Packets are expected to be terminated
+    Read binary packets from serial port. Packets are expected to be terminated
     with a TERMINATOR byte (null byte by default).
 
     The class also keeps track of the transport.

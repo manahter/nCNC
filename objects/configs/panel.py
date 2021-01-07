@@ -1,6 +1,6 @@
 from bpy.types import Panel
 
-from nCNC.assets.icons import icons
+from ...assets.icons import icons
 
 
 class NCNC_PT_ObjectConfigs(Panel):

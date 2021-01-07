@@ -7,7 +7,7 @@
 #
 # SPDX-License-Identifier:    BSD-3-Clause
 
-from nCNC.modules.serial.serialutil import *
+from .serialutil import *
 
 
 def my_import(name):
