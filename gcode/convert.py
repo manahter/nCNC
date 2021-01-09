@@ -81,6 +81,7 @@ class NCNC_OT_GCodeConvert(Operator):
     step_vector: FloatVectorProperty(default=[0, 0, 0], subtype="XYZ")
 
     last_selected_object = None
+    convert_list = []
 
     # !!! use for 3D references:
     # https://docs.blender.org/api/current/bmesh.ops.html?highlight=bisect#bmesh.ops.bisect_plane
@@ -168,6 +169,7 @@ class NCNC_OT_GCodeConvert(Operator):
         self.obj = obj
 
         # Mesh'e dönüştürüp, Z'de uç noktaları buluyoruz
+
         verts = [v.co.z for v in obj.to_mesh().vertices]
         self.max_z = max(verts)
         self.min_z = min(verts)
@@ -178,6 +180,70 @@ class NCNC_OT_GCodeConvert(Operator):
         ##########################################
         ##########################################
 
+        if obj.type == "MESH":
+            # Obje Bmesh'e dönüştürülür
+            bm = bmesh.new()
+            bm.from_mesh(obj.data)
+            # bm.from_mesh(obj.data)
+            # bm.select_mode()
+            # bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
+
+            if True:
+                # BMesh'ten Z ekseninde bir kesit alınır
+                cut = bmesh.ops.bisect_plane(bm, geom=bm.edges[:] + bm.faces[:], dist=0.001,
+                                             plane_co=Vector((0, 0, 0)),
+                                             plane_no=Vector((0, 0, 1)),
+                                             )["geom_cut"]
+
+                # Sadece Edge'leri al ve sırala
+                # cut = sorted([e for e in cut if isinstance(e, bmesh.types.BMEdge)], key=lambda e: e.index)
+                cut = [e for e in cut if isinstance(e, bmesh.types.BMEdge)]
+
+                # Loop olabilen Noktaları biriktiriyoruz.
+                polys = []
+
+                # Kenarları alıp içindeki noktalarla başka kenarlar arasında bağlantı var mı bakıyoruz ve böylece,
+                # birleşik kenarlardaki noktaları biriktiriyoruz.
+                for edg in cut:
+                    poly = edg.verts[:]
+                    for _edg in cut.copy():
+                        if edg == _edg:
+                            continue
+                        v0, v1 = _edg.verts[:]
+                        if not (v0.is_boundary and v1.is_boundary):
+                            continue
+                        if v0 == poly[-1]:
+                            poly.append(v1)
+                            cut.remove(_edg)
+                        elif v1 == poly[-1]:
+                            poly.append(v0)
+                            cut.remove(_edg)
+                        elif v0 == poly[0]:
+                            poly.insert(0, v1)
+                            cut.remove(_edg)
+                        elif v1 == poly[0]:
+                            poly.insert(0, v0)
+                            cut.remove(_edg)
+                    # Bu kısım geliştirilebilir. Sadece bir çizgi oluşturmak istendiğinde vs..
+                    # if len(poly) == 2:
+                    #     continue
+                    polys.append(poly)
+
+                # Noktalardan Spline oluştur
+                if polys:
+                    # Eğri oluşturulur
+                    curve = bpy.data.curves.new("nLink", 'CURVE')
+                    curve.dimensions = '3D'
+                    # Spline oluşturulur
+                    for poly in polys:
+                        spline = curve.splines.new("POLY")
+                        spline.use_cyclic_u = True
+                        spline.points[0].co.xyz = poly[0].co.xyz
+                        for v in poly[1:]:
+                            spline.points.add(1)
+                            spline.points[-1].co.xyz = v.co.xyz
+
+                    return curve
 
 
 
@@ -217,7 +283,6 @@ class NCNC_OT_GCodeConvert(Operator):
         ##########################################
         ##########################################
 
-        print("Başladık")
         context.window_manager.modal_handler_add(self)
         return self.timer_add(context)
 
