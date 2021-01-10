@@ -93,6 +93,7 @@ def dilimle(data, min_z, max_z, step_z):
         step -= step_z
         if step < min_z:
             step = min_z
+            # TODO !!! En alt katmanı da dilimle, boş kalıyor
 
         # Sadece Edge'leri al ve sırala
         # cut = sorted([e for e in cut if isinstance(e, bmesh.types.BMEdge)], key=lambda e: e.index)
