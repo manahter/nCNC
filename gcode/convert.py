@@ -53,6 +53,96 @@ def get_data_text_object(context, obj):
         return data
 
 
+def biless(data, bilesen):
+    """Vertexleri birleştirir"""
+
+    # Birleşendeki son Vertexi alıyoruz ve datadan o vertex bağlı diğerlerini alıyoruz.
+    _verts = data[bilesen[-1].index].copy()
+
+    # Vertexleri aldık içini temizleyelim.
+    data[bilesen[-1].index].clear()
+
+    # Bitir, 3 taneden az vertex varsa, bilesen 2 taneden az ise, vertexlerin hepsi zaten birlesende varsa
+    if (len(_verts) < 3) or (len(bilesen) < 2) or len(set(_verts) - set(bilesen)) < 1:
+        return bilesen
+
+    # Vertexlerdeki son
+    if bilesen[-2] != _verts[0]:
+        _verts.reverse()
+
+    bilesen = biless(data, bilesen[:-2] + _verts)
+    bilesen.reverse()
+    return biless(data, bilesen)
+
+
+def dilimle(data, min_z, max_z, step_z):
+    bm = bmesh.new()
+    bm.from_mesh(data)
+
+    step = max_z - step_z
+
+    curves = []
+    while step > min_z:
+        # BMesh'ten Z ekseninde bir kesit alınır
+        cut = bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], dist=0,
+                                     plane_co=Vector((0, 0, step)),
+                                     plane_no=Vector((0, 0, 1)),
+                                     # clear_inner=True
+                                     )["geom_cut"]
+
+        step -= step_z
+        if step < min_z:
+            step = min_z
+
+        # Sadece Edge'leri al ve sırala
+        # cut = sorted([e for e in cut if isinstance(e, bmesh.types.BMEdge)], key=lambda e: e.index)
+        # cut = [e for e in cut if isinstance(e, bmesh.types.BMEdge) and not print(e)]
+        cut = [e for e in cut if isinstance(e, bmesh.types.BMEdge)]
+
+        # Vertexleri indexlere ayır
+        # {ind: [Edge1, Edge2], ind: [Edge1, Edge2]}
+        inds = {}
+        for e in cut:
+            for ind in [e.verts[0].index, e.verts[1].index]:
+                if ind in inds:
+                    # Önceki eklenen edge ile şimdi eklenen edge vertexlerini birleştir.
+                    verts = (*inds[ind], *e.verts[:])
+                    mid = max(verts, key=verts.count)
+                    vts = list(set(verts))
+                    vts.remove(mid)
+                    inds[ind] = [vts[0], mid, vts[1]]
+                else:
+                    inds[ind] = e.verts[:]
+
+        # print("indexes", *inds.values(), sep="\n")
+        polys = []
+        for ind, verts in inds.items():
+            if len(verts) < 3:
+                verts.clear()
+                continue
+
+            polys.append(biless(inds, verts))
+
+        # Noktalardan Spline oluştur
+        if polys:
+            # Eğri oluşturulur
+            curve = bpy.data.curves.new("nLink", 'CURVE')
+            curve.dimensions = '3D'
+            # Spline oluşturulur
+            for poly in polys:
+                if len(poly) < 2:
+                    continue
+                spline = curve.splines.new("POLY")
+                spline.use_cyclic_u = True
+                spline.points[0].co.xyz = poly[0].co.xyz
+                for v in poly[1:]:
+                    spline.points.add(1)
+                    spline.points[-1].co.xyz = v.co.xyz
+
+            curves.append(curve)
+    return curves
+
+
 class NCNC_OT_GCodeConvert(Operator):
     bl_idname = "ncnc.gcode_convert"
     bl_label = "Convert"
@@ -76,12 +166,12 @@ class NCNC_OT_GCodeConvert(Operator):
     block: IntProperty(default=0)
     index_spline: IntProperty(default=0)
     index_dongu: IntProperty(default=0)
+    index_curve: IntProperty(default=0)
 
     # Usually used for the Z value
     step_vector: FloatVectorProperty(default=[0, 0, 0], subtype="XYZ")
 
-    last_selected_object = None
-    convert_list = []
+    curve_list = []
 
     # !!! use for 3D references:
     # https://docs.blender.org/api/current/bmesh.ops.html?highlight=bisect#bmesh.ops.bisect_plane
@@ -132,7 +222,7 @@ class NCNC_OT_GCodeConvert(Operator):
             # Oluşan objenin datasını kopyalıyoruz
             obj.data = bpy.data.meshes.new_from_object(object_eval)
 
-            # Orjinal Kütüğe eklediğimiz modifierleri temizliyoruz ki sonradan sorun çıkmasın
+            # Orjinal Kütüğe şimdi eklediğimiz modifierleri temizliyoruz ki sonradan sorun çıkmasın
             stock.modifiers.clear()
 
         conf = obj_orj.ncnc_pr_objectconfigs
@@ -156,6 +246,7 @@ class NCNC_OT_GCodeConvert(Operator):
         self.dongu.clear()
         self.index_spline = 0
         self.index_dongu = 0
+        self.index_curve = 0
         ##########################################
         ##########################################
 
@@ -169,100 +260,39 @@ class NCNC_OT_GCodeConvert(Operator):
         self.obj = obj
 
         # Mesh'e dönüştürüp, Z'de uç noktaları buluyoruz
-
+        mesh = obj.to_mesh()
         verts = [v.co.z for v in obj.to_mesh().vertices]
         self.max_z = max(verts)
         self.min_z = min(verts)
 
         # Oluşan mesh'i temizliyoruz
-        obj.to_mesh_clear()
+        # obj.to_mesh_clear()
 
         ##########################################
         ##########################################
 
         if obj.type == "MESH":
-            # Obje Bmesh'e dönüştürülür
-            bm = bmesh.new()
-            bm.from_mesh(obj.data)
-            # bm.from_mesh(obj.data)
-            # bm.select_mode()
-            # bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
+            # Mesh dilimlenip, Curvelere dönüştürülür ve koleksiyonlanır.
+            # for i in dilimle(mesh, self.min_z, self.max_z, conf.step):
+            #     curve = self.curve_list.add()
+            #     curve.obj = i
+            # self.curve_list = dilimle(obj.data, self.min_z, self.max_z, conf.step)
+            self.curve_list = dilimle(obj.data.copy(), self.min_z, self.max_z, conf.step)
 
-            if True:
-                # BMesh'ten Z ekseninde bir kesit alınır
-                cut = bmesh.ops.bisect_plane(bm, geom=bm.edges[:] + bm.faces[:], dist=0.001,
-                                             plane_co=Vector((0, 0, 0)),
-                                             plane_no=Vector((0, 0, 1)),
-                                             )["geom_cut"]
-
-                # Sadece Edge'leri al ve sırala
-                # cut = sorted([e for e in cut if isinstance(e, bmesh.types.BMEdge)], key=lambda e: e.index)
-                cut = [e for e in cut if isinstance(e, bmesh.types.BMEdge)]
-
-                # Loop olabilen Noktaları biriktiriyoruz.
-                polys = []
-
-                # Kenarları alıp içindeki noktalarla başka kenarlar arasında bağlantı var mı bakıyoruz ve böylece,
-                # birleşik kenarlardaki noktaları biriktiriyoruz.
-                for edg in cut:
-                    poly = edg.verts[:]
-                    for _edg in cut.copy():
-                        if edg == _edg:
-                            continue
-                        v0, v1 = _edg.verts[:]
-                        if not (v0.is_boundary and v1.is_boundary):
-                            continue
-                        if v0 == poly[-1]:
-                            poly.append(v1)
-                            cut.remove(_edg)
-                        elif v1 == poly[-1]:
-                            poly.append(v0)
-                            cut.remove(_edg)
-                        elif v0 == poly[0]:
-                            poly.insert(0, v1)
-                            cut.remove(_edg)
-                        elif v1 == poly[0]:
-                            poly.insert(0, v0)
-                            cut.remove(_edg)
-                    # Bu kısım geliştirilebilir. Sadece bir çizgi oluşturmak istendiğinde vs..
-                    # if len(poly) == 2:
-                    #     continue
-                    polys.append(poly)
-
-                # Noktalardan Spline oluştur
-                if polys:
-                    # Eğri oluşturulur
-                    curve = bpy.data.curves.new("nLink", 'CURVE')
-                    curve.dimensions = '3D'
-                    # Spline oluşturulur
-                    for poly in polys:
-                        spline = curve.splines.new("POLY")
-                        spline.use_cyclic_u = True
-                        spline.points[0].co.xyz = poly[0].co.xyz
-                        for v in poly[1:]:
-                            spline.points.add(1)
-                            spline.points[-1].co.xyz = v.co.xyz
-
-                    return curve
-
-
-
-
+            # conf.depth = conf.step
         # TODO !!! işte Mesh objeyi tam burada z ekseninde dilimleyeceğiz ve dilimleri poly'ye çevireceğiz.
 
-
-
-
-
-        ##########################################
-        ##########################################
         # Z adımı, derinlikten büyükse veya spline yoksa işlemi bitir
-        if conf.step > conf.depth or not len(self.obj.data.splines):
+        elif conf.step > conf.depth or not len(self.obj.data.splines):
             return self.timer_remove(context, only_object=True)
+
+        print("Min / Max", self.min_z, self.max_z)
 
         # Steps in the Z axis -> 0.5, 1.0, 1.5, 2.0 ...
         self.dongu.extend([i * conf.step for i in range(1, int(conf.depth / conf.step + 1), )])
 
+        ##########################################
+        ##########################################
         # Calculate last Z step
         if conf.depth % conf.step > 0.01:
             if len(self.dongu):
@@ -276,7 +306,7 @@ class NCNC_OT_GCodeConvert(Operator):
         self.code = f"S{conf.spindle} ( Spindle )"
         self.code = f"( Safe Z : {conf.safe_z} )"
         self.code = f"( Step Z : {conf.step} )"
-        self.code = f"( Total depth : {round(conf.depth, 3)} )"
+        self.code = f"( Total depth : {round(conf.depth, 3) if obj.type != 'MESH' else self.min_z} )"
         self.code = f"( Feed Rate -mm/min- : {conf.feed} )"
         self.code = f"( Plunge Rate -mm/min- : {conf.plunge} )"
 
@@ -314,10 +344,18 @@ class NCNC_OT_GCodeConvert(Operator):
         # Necessary calculations have been made
         # Gcode can now be creating for object
 
-        splines = self.obj.data.splines
+        # TODO !!! Düzelt. Buradan dongu sayısına göre hangi sırada olduğumuz ve hangi Curve'de kaldığımızı alıyoruz
+        len_curves = len(self.curve_list)
+        if len_curves:
+            splines = self.curve_list[self.index_curve].splines
+            rate_curve = 1 / len_curves
+        else:
+            splines = self.obj.data.splines
+            rate_curve = 1
 
-        rate_spline = (1 / len(splines)) * 100
-        self.conf.loading = max(rate_spline * self.index_spline, 1)
+        # TODO !!! Düzelt
+        rate_spline = (1 / len(splines)) * rate_curve
+        self.conf.loading = max(100 * (rate_curve * self.index_curve + rate_spline * self.index_spline), 1)
 
         # Curve altındaki tüm Spline'ları sırayla al
         for i, subcurve in enumerate(splines[self.index_spline:], start=self.index_spline + 1):
@@ -333,8 +371,9 @@ class NCNC_OT_GCodeConvert(Operator):
             for j, k in enumerate(self.dongu[self.index_dongu:], start=self.index_dongu + 1):
 
                 rate_dongu = (1 / len(self.dongu)) * rate_spline
-                self.conf.loading += max(rate_dongu * self.index_dongu, 1)
-                self.step_vector.z = k
+                self.conf.loading += max(rate_dongu * self.index_dongu * 100, 1)
+                if not len_curves:
+                    self.step_vector.z = k
 
                 if curvetype == 'NURBS':
                     # Yapım aşamasında !!!
@@ -358,6 +397,13 @@ class NCNC_OT_GCodeConvert(Operator):
             self.index_dongu = 0
             self.index_spline += 1
             return {'PASS_THROUGH'}
+
+        if len_curves:
+            self.index_curve += 1
+            if len_curves > self.index_curve:
+                self.index_spline = 0
+                self.index_dongu = 0
+                return {'PASS_THROUGH'}
 
         if self.conf.milling_strategy in (S.INNER, S.ONLY_INNER):
             self.clearance_zigzag()
@@ -512,6 +558,7 @@ class NCNC_OT_GCodeConvert(Operator):
     def poly(self, subcurve):
         conf = self.conf
         r = self.roll
+
         point_list = [i.co.to_3d() - self.step_vector for i in subcurve.points]
 
         if not point_list:
