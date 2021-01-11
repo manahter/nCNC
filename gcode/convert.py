@@ -82,18 +82,20 @@ def dilimle(data, min_z, max_z, step_z):
     step = max_z - step_z
 
     curves = []
-    while step > min_z:
+    while step >= min_z:
         # BMesh'ten Z ekseninde bir kesit alınır
-        cut = bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], dist=0,
+        cut = bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
                                      plane_co=Vector((0, 0, step)),
                                      plane_no=Vector((0, 0, 1)),
+                                     dist=0,
                                      # clear_inner=True
                                      )["geom_cut"]
-
         step -= step_z
-        if step < min_z:
-            step = min_z
-            # TODO !!! En alt katmanı da dilimle, boş kalıyor
+
+        if step < min_z and step + step_z != min_z:
+            # En alt katman dilimlenebilsin diye birazcık offset uyguluyoruz
+            step = min_z #+ 0.001
+            # En alt katmanı da dilimleyelim
 
         # Sadece Edge'leri al ve sırala
         # cut = sorted([e for e in cut if isinstance(e, bmesh.types.BMEdge)], key=lambda e: e.index)
@@ -202,9 +204,20 @@ class NCNC_OT_GCodeConvert(Operator):
                 return {'CANCELLED'}
 
         # Curve ise veya kütük yok ise direkt kopyala
-        elif obj_orj.type == "CURVE" or not stock:
+        elif obj_orj.type == "CURVE":
             obj = obj_orj.copy()
             obj.data = obj.data.copy()
+
+        # Eğer Mesh ise ve kütük yok ise mesh'i al
+        elif not stock:
+            obj = obj_orj.copy()
+
+            # Grafiklerden modifiye edilmiş objeyi alıyoruz.
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            object_eval = obj_orj.evaluated_get(depsgraph)
+
+            # Oluşan objenin datasını kopyalıyoruz
+            obj.data = bpy.data.meshes.new_from_object(object_eval)
 
         # Eğer Mesh ise ve kütük var ise kütükten çıkart
         else:
@@ -224,7 +237,7 @@ class NCNC_OT_GCodeConvert(Operator):
             obj.data = bpy.data.meshes.new_from_object(object_eval)
 
             # Orjinal Kütüğe şimdi eklediğimiz modifierleri temizliyoruz ki sonradan sorun çıkmasın
-            stock.modifiers.clear()
+            stock.modifiers.remove(mod_bool)
 
         conf = obj_orj.ncnc_pr_objectconfigs
         conf.is_updated = False
@@ -278,6 +291,10 @@ class NCNC_OT_GCodeConvert(Operator):
             #     curve = self.curve_list.add()
             #     curve.obj = i
             # self.curve_list = dilimle(obj.data, self.min_z, self.max_z, conf.step)
+
+            # depsgraph = bpy.context.evaluated_depsgraph_get()
+            # object_eval = stock.evaluated_get(depsgraph)
+
             self.curve_list = dilimle(obj.data.copy(), self.min_z, self.max_z, conf.step)
 
             # conf.depth = conf.step
