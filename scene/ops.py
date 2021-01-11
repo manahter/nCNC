@@ -27,6 +27,10 @@ class NCNC_OT_Scene(Operator):
 
     def invoke(self, context, event=None):
 
+        # Aktif obje Edit moddaysa, obje moduna çeviriyoruz ki işlem yapabilelim
+        if context.active_object and context.active_object.mode == "EDIT":
+            bpy.ops.object.editmode_toggle()
+
         if self.newscene:
             for i in bpy.data.objects:
                 i.ncnc_pr_objectconfigs.included = False

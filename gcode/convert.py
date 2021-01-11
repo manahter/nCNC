@@ -76,18 +76,35 @@ def biless(data, bilesen):
 
 
 def dilimle(data, min_z, max_z, step_z):
+    # TODO !!! Düzlemleri de 1 dilim olarak ayarlayabilsin
+
     bm = bmesh.new()
     bm.from_mesh(data)
+    bmesh.ops.weld_verts(bm)
 
-    step = max_z - step_z
+    only = max_z == min_z
+
+    for e in bm.edges:
+        # print("is Convex", e.is_convex, e.is_contiguous, e.is_boundary, e.is_manifold)
+        if e.is_contiguous:
+            o = e.calc_face_angle(None)
+            print("o", o)
+    # Eğer düzlemse, gereksiz çizgileri temizle.
+    if only:
+        bmesh.ops.dissolve_limit(bm, angle_limit=radians(1.7), verts=bm.verts, edges=bm.edges)
+        bmesh.ops.delete(bm, geom=[e for e in bm.edges if e.is_contiguous], context="EDGES")
+        step = min_z
+    # 3D ise normal devam
+    else:
+        step = max_z - step_z
 
     curves = []
     while step >= min_z:
         # BMesh'ten Z ekseninde bir kesit alınır
         cut = bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
                                      plane_co=Vector((0, 0, step)),
-                                     plane_no=Vector((0, 0, 1)),
-                                     dist=0,
+                                     plane_no=Vector((0, 0, -1)),
+                                     dist=0.001 if only else 0,
                                      # clear_inner=True
                                      )["geom_cut"]
         step -= step_z
@@ -123,7 +140,6 @@ def dilimle(data, min_z, max_z, step_z):
             if len(verts) < 3:
                 verts.clear()
                 continue
-
             polys.append(biless(inds, verts))
 
         # Noktalardan Spline oluştur
@@ -135,6 +151,13 @@ def dilimle(data, min_z, max_z, step_z):
             for poly in polys:
                 if len(poly) < 2:
                     continue
+
+                # Başlangıç noktasını değiştir. X de en küçük noktayı başlangıç noktası yap
+                ind = poly.index(min(poly, key=lambda k: k.co.x))
+                bas = poly[:ind]
+                poly = poly[ind:]
+                poly.extend(bas)
+
                 spline = curve.splines.new("POLY")
                 spline.use_cyclic_u = True
                 spline.points[0].co.xyz = poly[0].co.xyz
@@ -197,7 +220,9 @@ class NCNC_OT_GCodeConvert(Operator):
         obj_orj = bpy.data.objects[self.obj_name]
 
         # Eğer Yazı ise, objenin datası Curve'ye çevrilerek alınır
-        if obj_orj.type == "FONT":
+        if obj_orj.type == "FONT" and not len(obj_orj.modifiers) and not obj_orj.data.extrude and \
+           not obj_orj.data.bevel_object and not obj_orj.data.bevel_depth and not obj_orj.data.follow_curve and \
+           obj_orj.data.bevel_mode != 'PROFILE':
             obj = obj_orj.copy()
             obj.data = get_data_text_object(context, obj_orj)
             if not obj.data:
@@ -274,47 +299,38 @@ class NCNC_OT_GCodeConvert(Operator):
         self.obj = obj
 
         # Mesh'e dönüştürüp, Z'de uç noktaları buluyoruz
-        mesh = obj.to_mesh()
         verts = [v.co.z for v in obj.to_mesh().vertices]
         self.max_z = max(verts)
         self.min_z = min(verts)
 
         # Oluşan mesh'i temizliyoruz
-        # obj.to_mesh_clear()
+        obj.to_mesh_clear()
 
         ##########################################
-        ##########################################
-
+        ########################################## DiLiMLE
+        depth = conf.depth
+        step = conf.step
         if obj.type == "MESH":
-            # Mesh dilimlenip, Curvelere dönüştürülür ve koleksiyonlanır.
-            # for i in dilimle(mesh, self.min_z, self.max_z, conf.step):
-            #     curve = self.curve_list.add()
-            #     curve.obj = i
-            # self.curve_list = dilimle(obj.data, self.min_z, self.max_z, conf.step)
+            # TODO önce objenin tümünün düzlem olup olmadığını kontrol et.
 
-            # depsgraph = bpy.context.evaluated_depsgraph_get()
-            # object_eval = stock.evaluated_get(depsgraph)
+            # Mesh dilimlenip, Curvelere dönüştürülür ve listede tutulur.
+            self.curve_list = dilimle(obj.data.copy(), self.min_z, self.max_z, step)
 
-            self.curve_list = dilimle(obj.data.copy(), self.min_z, self.max_z, conf.step)
-
-            # conf.depth = conf.step
-        # TODO !!! işte Mesh objeyi tam burada z ekseninde dilimleyeceğiz ve dilimleri poly'ye çevireceğiz.
+            depth = step
 
         # Z adımı, derinlikten büyükse veya spline yoksa işlemi bitir
-        elif conf.step > conf.depth or not len(self.obj.data.splines):
+        elif step > depth or not len(self.obj.data.splines):
             return self.timer_remove(context, only_object=True)
 
-        print("Min / Max", self.min_z, self.max_z)
-
         # Steps in the Z axis -> 0.5, 1.0, 1.5, 2.0 ...
-        self.dongu.extend([i * conf.step for i in range(1, int(conf.depth / conf.step + 1), )])
+        self.dongu.extend([i * step for i in range(1, int(depth / step + 1), )])
 
         ##########################################
         ##########################################
         # Calculate last Z step
-        if conf.depth % conf.step > 0.01:
+        if depth % step > 0.01 and len(self.dongu):
             if len(self.dongu):
-                self.dongu.append(round(self.dongu[-1] + conf.depth % conf.step, conf.round_loca))
+                self.dongu.append(round(self.dongu[-1] + depth % step, conf.round_loca))
             else:
                 self.dongu.append(round(self.dongu[-1], conf.round_loca))
 
@@ -323,8 +339,8 @@ class NCNC_OT_GCodeConvert(Operator):
         self.code = f"{conf.plane} ( Plane Axis )"
         self.code = f"S{conf.spindle} ( Spindle )"
         self.code = f"( Safe Z : {conf.safe_z} )"
-        self.code = f"( Step Z : {conf.step} )"
-        self.code = f"( Total depth : {round(conf.depth, 3) if obj.type != 'MESH' else self.min_z} )"
+        self.code = f"( Step Z : {step} )"
+        self.code = f"( Total depth : {round(depth, 3) if obj.type != 'MESH' else self.min_z} )"
         self.code = f"( Feed Rate -mm/min- : {conf.feed} )"
         self.code = f"( Plunge Rate -mm/min- : {conf.plunge} )"
 
@@ -416,15 +432,15 @@ class NCNC_OT_GCodeConvert(Operator):
             self.index_spline += 1
             return {'PASS_THROUGH'}
 
+        if self.conf.milling_strategy in (S.INNER, S.ONLY_INNER):
+            self.clearance_zigzag(len_curves and self.curve_list[self.index_curve])
+
         if len_curves:
             self.index_curve += 1
             if len_curves > self.index_curve:
                 self.index_spline = 0
                 self.index_dongu = 0
                 return {'PASS_THROUGH'}
-
-        if self.conf.milling_strategy in (S.INNER, S.ONLY_INNER):
-            self.clearance_zigzag()
 
         return self.finished(context)
 
@@ -614,14 +630,17 @@ class NCNC_OT_GCodeConvert(Operator):
         self.code = f"G1 X{r(x=vert1.x)} Y{r(y=vert1.y)} Z{r(z=vert1.z)}"
 
     # Ref: https://b3d.interplanety.org/en/how-to-create-mesh-through-the-blender-python-api/
-    def clearance_zigzag(self):
+    def clearance_zigzag(self, curve=None):
         """Obj type must [Curve or Text] and shape 3D and fill"""
 
-        obj = self.obj.copy()
-        obj.data = self.obj.data.copy()
+        if curve:
+            obj = bpy.data.objects.new("object_name", curve.copy())
+        else:
+            obj = self.obj.copy()
+            obj.data = self.obj.data.copy()
 
-        if obj.data.dimensions == '2D':
-            obj.data.dimensions = '3D'
+            if obj.type == "CURVE" and obj.data.dimensions == '2D':
+                obj.data.dimensions = '3D'
 
         # Buraya sınama durumlarını ekle.
 
@@ -812,7 +831,8 @@ class NCNC_OT_GCodeConvert(Operator):
                 v_prv = None
 
         for j, k in enumerate(self.dongu):
-            self.step_vector.z = k
+            if not curve:
+                self.step_vector.z = k
             self.add_block(name=f"{self.obj_name}, Clearance, ZigZag, StepZ{j}", expand="0", enable="1")
             for l in line_list:
                 self.line(l[0] - self.step_vector, l[1] - self.step_vector, *l[2:])
