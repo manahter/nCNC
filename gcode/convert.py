@@ -75,97 +75,170 @@ def biless(data, bilesen):
     return biless(data, bilesen)
 
 
-def dilimle(data, min_z, max_z, step_z):
-    # TODO !!! Düzlemleri de 1 dilim olarak ayarlayabilsin
+def partla(bm):
+    """BMesh'i bağımsız parçalarına ayırır.
+    return:
+    [
+        {"verts": {Vert1, Vert2...}, "edges": {Edge1, Edge2...}}    -> Part1
+        {"verts": {Vert1, Vert2...}, "edges": {Edge1, Edge2...}}    -> Part2...
+    ]
+    """
+    bm.edges.ensure_lookup_table()
 
+    edges = bm.edges[:]
+    parts = []
+    while edges:
+        is_append = False
+        for e in edges[::-1]:
+            v0, v1 = e.verts[:]
+            for p in parts:
+                if v0 in p["verts"] or v1 in p["verts"]:
+                    p["edges"].add(e)
+                    p["verts"].add(v0)
+                    p["verts"].add(v1)
+                    edges.remove(e)
+                    is_append = True
+                    break
+
+            if is_append:
+                break
+
+        if not is_append:
+            e = edges[-1]
+            v0, v1 = e.verts[:]
+            parts.append({"verts": {v0, v1}, "edges": {e}})
+
+    return parts
+
+
+def is_planar(edges):
+    """BMEdge'lerin düzlemsel olup olmadığını döndürür"""
+    for e in edges:
+        # İki kenarın birbirine bitişik olduğunda, arada kalan görünmeyen yüzeyleri telafi edebilmek için, alanları
+        # kontrol edilerek işleme devam edilir.
+        if e.is_contiguous and e.calc_face_angle(None) and \
+                e.link_faces[0].calc_area() > 0.01 and e.link_faces[1].calc_area() > 0.01:
+            print("false", e.calc_face_angle(None))
+            return False
+    return True
+
+
+def planar_parts(bm):
+    """Düzlemsel parçaları döndürür. Edgeleri parçalarına ayırır ve düzlemsel olup olmadıklarını sorgular.
+    return:
+    [
+        { Edge1, Edge2..}   -> Part1
+        { Edge1, Edge2..}   -> Part2
+    ]
+    """
+    return [list(p["edges"]) for p in partla(bm) if is_planar(p["edges"])]
+
+
+def make_curve(edges):
+    """BMEdge'leri birleştirerek curve oluşturur.
+    return:
+    [ curve ] or [ ]
+    """
+    # Vertexleri indexlere ayır
+    # {ind: [Edge1, Edge2], ind: [Edge1, Edge2]}
+    inds = {}
+    for e in edges:
+        for ind in [e.verts[0].index, e.verts[1].index]:
+            if ind in inds:
+                # Önceki eklenen edge ile şimdi eklenen edge vertexlerini birleştir.
+                verts = (*inds[ind], *e.verts[:])
+                mid = max(verts, key=verts.count)
+                vts = list(set(verts))
+                vts.remove(mid)
+                inds[ind] = [vts[0], mid, vts[1]]
+            else:
+                inds[ind] = e.verts[:]
+
+    # print("indexes", *inds.values(), sep="\n")
+    polys = []
+    for ind, verts in inds.items():
+        if len(verts) < 3:
+            verts.clear()
+            continue
+        polys.append(biless(inds, verts))
+
+    # Noktalardan Spline oluştur
+    if polys:
+        # Eğri oluşturulur
+        curve = bpy.data.curves.new("nLink", 'CURVE')
+        curve.dimensions = '3D'
+        # Spline oluşturulur
+        for poly in polys:
+            if len(poly) < 2:
+                continue
+
+            # Başlangıç noktasını değiştir. X de en küçük noktayı başlangıç noktası yap
+            ind = poly.index(min(poly, key=lambda k: k.co.x))
+            bas = poly[:ind]
+            poly = poly[ind:]
+            poly.extend(bas)
+
+            spline = curve.splines.new("POLY")
+            spline.use_cyclic_u = True
+            spline.points[0].co.xyz = poly[0].co.xyz
+            for v in poly[1:]:
+                spline.points.add(1)
+                spline.points[-1].co.xyz = v.co.xyz
+
+        return [curve]
+    return []
+
+
+def dilimle(data, step_z):
+    # TODO !!! Düzlemleri de 1 dilim olarak ayarlayabilsin.
+    #   Düzlemsel olanlar için, derinliği ve adımı aktif et. Bu kısım biraz karmaşıklaşacak gibi..
+
+    curves = []
     bm = bmesh.new()
     bm.from_mesh(data)
     bmesh.ops.weld_verts(bm)
+    bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(1.7), verts=bm.verts, edges=bm.edges)
 
-    only = max_z == min_z
+    for planar_edges in planar_parts(bm):
+        # Düzlemsel parçada yüzey içindeki gereksiz BMEdge'leri siliyoruz.
+        for e in planar_edges[::-1]:
+            # Bu kenar 2 tane yüzeyi mi birleştiriyor. O zaman sil
+            if e.is_contiguous:
+                planar_edges.remove(e)
 
-    for e in bm.edges:
-        # print("is Convex", e.is_convex, e.is_contiguous, e.is_boundary, e.is_manifold)
-        if e.is_contiguous:
-            o = e.calc_face_angle(None)
-            print("o", o)
-    # Eğer düzlemse, gereksiz çizgileri temizle.
-    if only:
-        bmesh.ops.dissolve_limit(bm, angle_limit=radians(1.7), verts=bm.verts, edges=bm.edges)
-        bmesh.ops.delete(bm, geom=[e for e in bm.edges if e.is_contiguous], context="EDGES")
+        # Curve oluşturuyoruz
+        curves.extend(make_curve(planar_edges))
+
+        # BMesh'den düzlemsel parçayı siliyoruz.
+        bmesh.ops.delete(bm, geom=planar_edges, context="EDGES")
+
+    verts_z = [v.co.z for v in bm.verts]
+    min_z = min(verts_z, default=0)
+    max_z = max(verts_z, default=0)
+    step = max_z - step_z
+
+    if step < min_z != max_z:
         step = min_z
-    # 3D ise normal devam
-    else:
-        step = max_z - step_z
 
-    curves = []
     while step >= min_z:
         # BMesh'ten Z ekseninde bir kesit alınır
         cut = bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
                                      plane_co=Vector((0, 0, step)),
                                      plane_no=Vector((0, 0, -1)),
-                                     dist=0.001 if only else 0,
+                                     dist=0,
                                      # clear_inner=True
                                      )["geom_cut"]
         step -= step_z
 
         if step < min_z and step + step_z != min_z:
-            # En alt katman dilimlenebilsin diye birazcık offset uyguluyoruz
-            step = min_z #+ 0.001
-            # En alt katmanı da dilimleyelim
+            # En alt katman dilimlenebilsin diye..
+            step = min_z
 
         # Sadece Edge'leri al ve sırala
-        # cut = sorted([e for e in cut if isinstance(e, bmesh.types.BMEdge)], key=lambda e: e.index)
-        # cut = [e for e in cut if isinstance(e, bmesh.types.BMEdge) and not print(e)]
-        cut = [e for e in cut if isinstance(e, bmesh.types.BMEdge)]
+        edges = [e for e in cut if isinstance(e, bmesh.types.BMEdge)]
 
-        # Vertexleri indexlere ayır
-        # {ind: [Edge1, Edge2], ind: [Edge1, Edge2]}
-        inds = {}
-        for e in cut:
-            for ind in [e.verts[0].index, e.verts[1].index]:
-                if ind in inds:
-                    # Önceki eklenen edge ile şimdi eklenen edge vertexlerini birleştir.
-                    verts = (*inds[ind], *e.verts[:])
-                    mid = max(verts, key=verts.count)
-                    vts = list(set(verts))
-                    vts.remove(mid)
-                    inds[ind] = [vts[0], mid, vts[1]]
-                else:
-                    inds[ind] = e.verts[:]
+        curves.extend(make_curve(edges))
 
-        # print("indexes", *inds.values(), sep="\n")
-        polys = []
-        for ind, verts in inds.items():
-            if len(verts) < 3:
-                verts.clear()
-                continue
-            polys.append(biless(inds, verts))
-
-        # Noktalardan Spline oluştur
-        if polys:
-            # Eğri oluşturulur
-            curve = bpy.data.curves.new("nLink", 'CURVE')
-            curve.dimensions = '3D'
-            # Spline oluşturulur
-            for poly in polys:
-                if len(poly) < 2:
-                    continue
-
-                # Başlangıç noktasını değiştir. X de en küçük noktayı başlangıç noktası yap
-                ind = poly.index(min(poly, key=lambda k: k.co.x))
-                bas = poly[:ind]
-                poly = poly[ind:]
-                poly.extend(bas)
-
-                spline = curve.splines.new("POLY")
-                spline.use_cyclic_u = True
-                spline.points[0].co.xyz = poly[0].co.xyz
-                for v in poly[1:]:
-                    spline.points.add(1)
-                    spline.points[-1].co.xyz = v.co.xyz
-
-            curves.append(curve)
     return curves
 
 
@@ -314,7 +387,7 @@ class NCNC_OT_GCodeConvert(Operator):
             # TODO önce objenin tümünün düzlem olup olmadığını kontrol et.
 
             # Mesh dilimlenip, Curvelere dönüştürülür ve listede tutulur.
-            self.curve_list = dilimle(obj.data.copy(), self.min_z, self.max_z, step)
+            self.curve_list = dilimle(obj.data.copy(), step)
 
             depth = step
 
