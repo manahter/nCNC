@@ -7,6 +7,9 @@ from bpy.props import EnumProperty, BoolProperty, PointerProperty, IntProperty, 
 from bpy.types import PropertyGroup, Scene
 from gpu_extras.batch import batch_for_shader
 
+gcode_batchs = {}
+gcode_shaders = {}
+
 
 def handles() -> dict:
     keycode = "ncnc_pr_vision.handles"
@@ -25,6 +28,152 @@ def handle_remove(keycode) -> handles:
         bpy.types.SpaceView3D.draw_handler_remove(handle_list.pop(keycode), 'WINDOW')
 
     return handle_list
+
+
+def register_check(context) -> bool:
+    return hasattr(context.scene, "ncnc_pr_machine") and hasattr(context.scene, "ncnc_pr_vision")
+
+
+def gcode_callback(self, context):
+    if not register_check(context):
+        return
+
+    pr_txt = context.scene.ncnc_pr_texts.active_text
+    if not pr_txt:
+        return
+
+    # for transparent
+    bgl.glEnable(bgl.GL_BLEND)
+
+    if not self.infront:
+        bgl.glEnable(bgl.GL_DEPTH_TEST)
+
+    pr_txt = pr_txt.ncnc_pr_text
+    if pr_txt.event:
+        gcode_batchs["p"] = batch_for_shader(gcode_shaders["p"],
+                                             'POINTS',
+                                             {"pos": pr_txt.get_points()})
+        for i in range(4):
+            gcode_batchs[i] = batch_for_shader(gcode_shaders[i],
+                                               'LINES',
+                                               {"pos": pr_txt.get_lines(i)})
+        if context.area:
+            context.area.tag_redraw()
+
+    if pr_txt.event_selected:
+        gcode_batchs["c"] = batch_for_shader(gcode_shaders["c"],
+                                             'LINES',
+                                             {"pos": pr_txt.get_selected()})
+
+    for i, color, thick, show in [(0, self.color_g0, self.thick_g0, self.g0),
+                                  (1, self.color_g1, self.thick_g1, self.g1),
+                                  (2, self.color_g2, self.thick_g2, self.g2),
+                                  (3, self.color_g3, self.thick_g3, self.g3),
+                                  ("p", self.color_gp, self.thick_gp, self.gp),
+                                  ("c", self.color_gc, self.thick_gc, self.gc)
+                                  ]:
+        if not show:
+            continue
+        if i == "p":
+            bgl.glPointSize(thick)
+        else:
+            bgl.glLineWidth(thick)
+        gcode_shaders[i].bind()
+        gcode_shaders[i].uniform_float("color", color)
+        gcode_batchs[i].draw(gcode_shaders[i])
+
+    # for transparent
+    bgl.glDisable(bgl.GL_BLEND)
+
+    if not self.infront:
+        bgl.glDepthMask(bgl.GL_TRUE)
+
+
+def dash_callback(self, context):
+    if not register_check(context):
+        return
+    # Draw text to indicate that draw mode is active
+    pr_mac = context.scene.ncnc_pr_machine
+    pos = pr_mac.mpos if pr_mac.pos_type == "mpos" else pr_mac.wpos
+
+    blf_pos_y = 10
+
+    pos_type = 'WPos' if pr_mac.pos_type == 'wpos' else 'MPos'
+    for prop, text, val in [
+        ("pos", pos_type, f"X {round(pos[0], 2)}   Y {round(pos[1], 2)}   Z {round(pos[2], 2)}"),
+        ("buffer", "Buffer", f"{pr_mac.buffer},{pr_mac.bufwer}"),
+        ("spindle", "Spindle", pr_mac.spindle),
+        ("feed", "Feed", pr_mac.feed),
+        ("status", "Status", pr_mac.status),
+    ]:
+
+        if not eval(f"self.{prop}"):
+            continue
+
+        size = eval(f"self.thick_{prop}")
+        blf.color(0, *eval(f"self.color_{prop}"))
+        blf.size(0, size, 64)
+        blf.position(0, 10, blf_pos_y, 0)
+        blf.draw(0, text)
+
+        blf.position(0, size * 5, blf_pos_y, 0)
+        blf.draw(0, f"{val}")
+        blf_pos_y += size * 1.5
+
+
+mill_delay = .5
+mill_last_time = 0
+mill_shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
+mill_batch = None
+
+
+def mill_callback(cls, self, context):
+    if not register_check(context):
+        return
+
+    global mill_delay, mill_last_time, mill_shader, mill_batch
+    if time.time() - mill_last_time > mill_delay:
+        pr_mac = context.scene.ncnc_pr_machine
+        pos = pr_mac.mpos if pr_mac.pos_type == "mpos" else pr_mac.wpos
+
+        mill_last_time = time.time()
+        mill_delay = .1 if pr_mac.status in ("JOG", "RUN") else .5
+        mill_batch = batch_for_shader(mill_shader,
+                                      'LINES',
+                                      {"pos": mill_lines(*pos)})
+
+    # for transparent
+    bgl.glEnable(bgl.GL_BLEND)
+
+    if not self.infront:
+        bgl.glEnable(bgl.GL_DEPTH_TEST)
+
+    bgl.glLineWidth(self.thick_mill)
+    mill_shader.bind()
+    mill_shader.uniform_float("color", self.color_mill)
+    mill_batch.draw(mill_shader)
+
+    # for transparent
+    bgl.glDisable(bgl.GL_BLEND)
+
+    if not self.infront:
+        bgl.glDepthMask(bgl.GL_TRUE)
+
+
+def mill_lines(x, y, z):
+    s = 1.5
+    s2 = s * 5
+    return [
+        (x, y, z), (x + s, y + s, z + s2),
+        (x, y, z), (x - s, y - s, z + s2),
+        (x, y, z), (x + s, y - s, z + s2),
+        (x, y, z), (x - s, y + s, z + s2),
+        (x - s, y - s, z + s2), (x - s, y + s, z + s2),
+        (x - s, y + s, z + s2), (x + s, y + s, z + s2),
+        (x + s, y - s, z + s2), (x + s, y + s, z + s2),
+        (x - s, y - s, z + s2), (x + s, y - s, z + s2),
+        (x, y, z + s2), (x, y, z + s2 * 2)
+    ]
 
 
 class NCNC_PR_Vision(PropertyGroup):
@@ -131,9 +280,9 @@ class NCNC_PR_Vision(PropertyGroup):
     # #################### DASH
     def update_dash(self, context):
         keycode = "DASH"
-        handles = handle_remove(keycode)
+        _handls = handle_remove(keycode)
         if self.dash:
-            handles[keycode] = bpy.types.SpaceView3D.draw_handler_add(self.dash_callback,
+            _handls[keycode] = bpy.types.SpaceView3D.draw_handler_add(dash_callback,
                                                                       (self, context),
                                                                       "WINDOW",
                                                                       "POST_PIXEL")
@@ -230,71 +379,6 @@ class NCNC_PR_Vision(PropertyGroup):
     thick_status: IntProperty(default=14, min=8, max=20, description="Font Size")
     thick_pos: IntProperty(default=14, min=8, max=20, description="Font Size")
 
-    @classmethod
-    def dash_callback(cls, self, context):
-        if not cls.register_check(context):
-            return
-        # Draw text to indicate that draw mode is active
-        pr_mac = context.scene.ncnc_pr_machine
-        pos = pr_mac.mpos if pr_mac.pos_type == "mpos" else pr_mac.wpos
-
-        blf_pos_y = 10
-
-        pos_type = 'WPos' if pr_mac.pos_type == 'wpos' else 'MPos'
-        for prop, text, val in [
-            ("pos", pos_type, f"X {round(pos[0], 2)}   Y {round(pos[1], 2)}   Z {round(pos[2], 2)}"),
-            ("buffer", "Buffer", f"{pr_mac.buffer},{pr_mac.bufwer}"),
-            ("spindle", "Spindle", pr_mac.spindle),
-            ("feed", "Feed", pr_mac.feed),
-            ("status", "Status", pr_mac.status),
-        ]:
-
-            if not eval(f"self.{prop}"):
-                continue
-
-            size = eval(f"self.thick_{prop}")
-            blf.color(0, *eval(f"self.color_{prop}"))
-            blf.size(0, size, 64)
-            blf.position(0, 10, blf_pos_y, 0)
-            blf.draw(0, text)
-
-            blf.position(0, size * 5, blf_pos_y, 0)
-            blf.draw(0, f"{val}")
-            blf_pos_y += size * 1.5
-
-    @classmethod
-    def dash_callback_recovery(cls, self, context):
-        if not cls.register_check(context):
-            return
-        # Draw text to indicate that draw mode is active
-        pr_mac = context.scene.ncnc_pr_machine
-        pos = pr_mac.mpos if pr_mac.pos_type == "mpos" else pr_mac.wpos
-
-        blf_pos_y = 10
-
-        pos_type = 'WPos' if pr_mac.pos_type == 'wpos' else 'MPos'
-        pos_str = f"X {round(pos[0], 2)}   Y {round(pos[1], 2)}   Z {round(pos[2], 2)}"
-        buf_str = f"{pr_mac.buffer},{pr_mac.bufwer}"
-        for text, val, show, color, size in [(pos_type, pos_str, self.pos, self.color_pos, self.thick_pos),
-                                             ("Buffer", buf_str, self.buffer, self.color_buffer, self.thick_buffer),
-                                             ("Spindle", pr_mac.spindle, self.spindle, self.color_spindle,
-                                              self.thick_spindle),
-                                             ("Feed", pr_mac.feed, self.feed, self.color_feed, self.thick_feed),
-                                             ("Status", pr_mac.status, self.status, self.color_status,
-                                              self.thick_status),
-                                             ]:
-            print(eval(f"self.pos"))
-            if not show:
-                continue
-            blf.color(0, *color)
-            blf.size(0, size, 64)
-            blf.position(0, 10, blf_pos_y, 0)
-            blf.draw(0, text)
-
-            blf.position(0, size * 5, blf_pos_y, 0)
-            blf.draw(0, f"{val}")
-            blf_pos_y += size * 1.5
-
     # ##########################
     # #################### GCODE
     def update_gcode(self, context):
@@ -313,92 +397,31 @@ class NCNC_PR_Vision(PropertyGroup):
             # Dotted Line For G0
             # https://docs.blender.org/api/current/gpu.html#custom-shader-for-dotted-3d-line
 
-            cls = self.__class__
             for i in range(4):
-                cls.gcode_shaders[i] = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
-                cls.gcode_batchs[i] = batch_for_shader(cls.gcode_shaders[i],
-                                                       'LINES',
-                                                       {"pos": pr_txt.get_lines(i)}
-                                                       # {"pos": []}
-                                                       )
+                gcode_shaders[i] = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
+                gcode_batchs[i] = batch_for_shader(gcode_shaders[i],
+                                                   'LINES',
+                                                   {"pos": pr_txt.get_lines(i)}
+                                                   # {"pos": []}
+                                                   )
 
-            cls.gcode_shaders["p"] = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
-            cls.gcode_batchs["p"] = batch_for_shader(cls.gcode_shaders["p"],
-                                                     'POINTS',
-                                                     {"pos": pr_txt.get_points()}
-                                                     # {"pos": []}
-                                                     )
+            gcode_shaders["p"] = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
+            gcode_batchs["p"] = batch_for_shader(gcode_shaders["p"],
+                                                 'POINTS',
+                                                 {"pos": pr_txt.get_points()}
+                                                 # {"pos": []}
+                                                 )
 
-            cls.gcode_shaders["c"] = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
-            cls.gcode_batchs["c"] = batch_for_shader(cls.gcode_shaders["c"],
-                                                     'LINES',
-                                                     {"pos": []}
-                                                     )
+            gcode_shaders["c"] = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
+            gcode_batchs["c"] = batch_for_shader(gcode_shaders["c"],
+                                                 'LINES',
+                                                 {"pos": []}
+                                                 )
 
-            handles[keycode] = bpy.types.SpaceView3D.draw_handler_add(cls.gcode_callback,
+            handles[keycode] = bpy.types.SpaceView3D.draw_handler_add(gcode_callback,
                                                                       (self, context),
                                                                       "WINDOW",
                                                                       "POST_VIEW")
-
-    @classmethod
-    def gcode_callback(cls, self, context):
-        if not cls.register_check(context):
-            return
-
-        pr_txt = context.scene.ncnc_pr_texts.active_text
-        if not pr_txt:
-            return
-
-        # for transparent
-        bgl.glEnable(bgl.GL_BLEND)
-
-        if not self.infront:
-            bgl.glEnable(bgl.GL_DEPTH_TEST)
-
-        pr_txt = pr_txt.ncnc_pr_text
-        if pr_txt.event:
-            cls.gcode_batchs["p"] = batch_for_shader(cls.gcode_shaders["p"],
-                                                     'POINTS',
-                                                     {"pos": pr_txt.get_points()})
-            for i in range(4):
-                cls.gcode_batchs[i] = batch_for_shader(cls.gcode_shaders[i],
-                                                       'LINES',
-                                                       {"pos": pr_txt.get_lines(i)})
-            if context.area:
-                context.area.tag_redraw()
-
-        if pr_txt.event_selected:
-            cls.gcode_batchs["c"] = batch_for_shader(cls.gcode_shaders["c"],
-                                                     'LINES',
-                                                     {"pos": pr_txt.get_selected()})
-
-        for i, color, thick, show in [(0, self.color_g0, self.thick_g0, self.g0),
-                                      (1, self.color_g1, self.thick_g1, self.g1),
-                                      (2, self.color_g2, self.thick_g2, self.g2),
-                                      (3, self.color_g3, self.thick_g3, self.g3),
-                                      ("p", self.color_gp, self.thick_gp, self.gp),
-                                      ("c", self.color_gc, self.thick_gc, self.gc)
-                                      ]:
-            if not show:
-                continue
-            if i == "p":
-                bgl.glPointSize(thick)
-            else:
-                bgl.glLineWidth(thick)
-            cls.gcode_shaders[i].bind()
-            cls.gcode_shaders[i].uniform_float("color", color)
-            cls.gcode_batchs[i].draw(cls.gcode_shaders[i])
-
-        # for transparent
-        bgl.glDisable(bgl.GL_BLEND)
-
-        if not self.infront:
-            bgl.glDepthMask(bgl.GL_TRUE)
-
-    gcode_shaders = {}
-    gcode_batchs = {}
-    gcode_last = ""
-    gcode_prev_current_line = None
 
     gcode: BoolProperty(default=True, update=update_gcode)
     gp: BoolProperty(default=True)
@@ -490,16 +513,15 @@ class NCNC_PR_Vision(PropertyGroup):
         keycode = "MILL"
         handles = handle_remove(keycode)
         if self.mill:
-            cls = self.__class__
             pr_mac = context.scene.ncnc_pr_machine
             pos = pr_mac.mpos if pr_mac.pos_type == "mpos" else pr_mac.wpos
 
-            cls.mill_shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
-            cls.mill_batch = batch_for_shader(cls.mill_shader,
-                                              'LINES',
-                                              {"pos": cls.mill_lines(*pos)})
+            global mill_shader, mill_batch
+            mill_batch = batch_for_shader(mill_shader,
+                                          'LINES',
+                                          {"pos": mill_lines(*pos)})
 
-            handles[keycode] = bpy.types.SpaceView3D.draw_handler_add(cls.mill_callback,
+            handles[keycode] = bpy.types.SpaceView3D.draw_handler_add(mill_callback,
                                                                       (self, context),
                                                                       "WINDOW",
                                                                       "POST_VIEW")
@@ -520,62 +542,6 @@ class NCNC_PR_Vision(PropertyGroup):
     )
 
     thick_mill: FloatProperty(name="Arc CCW", default=3.0, min=0, max=10, description="Line Thickness")
-    mill_delay = .5
-    mill_last_time = 0
-    mill_shader = None
-    mill_batch = None
-
-    @classmethod
-    def mill_callback(cls, self, context):
-        if not cls.register_check(context):
-            return
-
-        if time.time() - cls.mill_last_time > cls.mill_delay:
-            pr_mac = context.scene.ncnc_pr_machine
-            pos = pr_mac.mpos if pr_mac.pos_type == "mpos" else pr_mac.wpos
-
-            cls.mill_last_time = time.time()
-            cls.mill_delay = .1 if pr_mac.status in ("JOG", "RUN") else .5
-            cls.mill_batch = batch_for_shader(cls.mill_shader,
-                                              'LINES',
-                                              {"pos": cls.mill_lines(*pos)})
-
-        # for transparent
-        bgl.glEnable(bgl.GL_BLEND)
-
-        if not self.infront:
-            bgl.glEnable(bgl.GL_DEPTH_TEST)
-
-        bgl.glLineWidth(self.thick_mill)
-        cls.mill_shader.bind()
-        cls.mill_shader.uniform_float("color", self.color_mill)
-        cls.mill_batch.draw(cls.mill_shader)
-
-        # for transparent
-        bgl.glDisable(bgl.GL_BLEND)
-
-        if not self.infront:
-            bgl.glDepthMask(bgl.GL_TRUE)
-
-    @classmethod
-    def mill_lines(cls, x, y, z):
-        s = 1.5
-        s2 = s * 5
-        return [
-            (x, y, z), (x + s, y + s, z + s2),
-            (x, y, z), (x - s, y - s, z + s2),
-            (x, y, z), (x + s, y - s, z + s2),
-            (x, y, z), (x - s, y + s, z + s2),
-            (x - s, y - s, z + s2), (x - s, y + s, z + s2),
-            (x - s, y + s, z + s2), (x + s, y + s, z + s2),
-            (x + s, y - s, z + s2), (x + s, y + s, z + s2),
-            (x - s, y - s, z + s2), (x + s, y - s, z + s2),
-            (x, y, z + s2), (x, y, z + s2 * 2)
-        ]
-
-    @classmethod
-    def register_check(cls, context) -> bool:
-        return hasattr(context.scene, "ncnc_pr_machine") and hasattr(context.scene, "ncnc_pr_vision")
 
     @classmethod
     def register(cls):

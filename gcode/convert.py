@@ -118,7 +118,6 @@ def is_planar(edges):
         # kontrol edilerek işleme devam edilir.
         if e.is_contiguous and e.calc_face_angle(None) and \
                 e.link_faces[0].calc_area() > 0.01 and e.link_faces[1].calc_area() > 0.01:
-            print("false", e.calc_face_angle(None))
             return False
     return True
 
@@ -172,8 +171,8 @@ def make_curve(edges):
             if len(poly) < 2:
                 continue
 
-            # Başlangıç noktasını değiştir. X de en küçük noktayı başlangıç noktası yap
-            ind = poly.index(min(poly, key=lambda k: k.co.x))
+            # Başlangıç noktasını değiştir. X ve Y de en küçük noktayı başlangıç noktası yap
+            ind = poly.index(min(poly, key=lambda k: [k.co.x, k.co.y]))
             bas = poly[:ind]
             poly = poly[ind:]
             poly.extend(bas)
@@ -189,9 +188,15 @@ def make_curve(edges):
     return []
 
 
+def faces_between_points(bm, min_z, max_z):
+    """Z ekseninde min_z ile max_z arasındaki yüzeyleri döndürür."""
+    # bm.faces.ensure_lookup_table()
+    return [f for f in bm.faces[:] if all([min_z <= v.co.z <= max_z for v in f.verts[:]])]
+
+
 def dilimle(data, step_z):
-    # TODO !!! Düzlemleri de 1 dilim olarak ayarlayabilsin.
-    #   Düzlemsel olanlar için, derinliği ve adımı aktif et. Bu kısım biraz karmaşıklaşacak gibi..
+    # TODO !!!
+    #   Yüzey katmanlarını da taramayı ekleyelim
 
     curves = []
     bm = bmesh.new()
@@ -223,21 +228,27 @@ def dilimle(data, step_z):
     while step >= min_z:
         # BMesh'ten Z ekseninde bir kesit alınır
         cut = bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
-                                     plane_co=Vector((0, 0, step)),
+                                     plane_co=Vector((0, 0, (step + .001 if step == min_z else step))),
                                      plane_no=Vector((0, 0, -1)),
-                                     dist=0,
-                                     # clear_inner=True
+                                     dist=0
                                      )["geom_cut"]
-        step -= step_z
 
+        # TODO !!Çok yavaş bir yöntem olduğu için şimdilik iptal
+        #   Arada yüzey kaldıysa, yüzeyide traşla
+        # for f in faces_between_points(bm, step, step+step_z):
+        #     curves.extend(make_curve(f.edges))
+
+        step -= step_z
         if step < min_z and step + step_z != min_z:
             # En alt katman dilimlenebilsin diye..
             step = min_z
 
-        # Sadece Edge'leri al ve sırala
-        edges = [e for e in cut if isinstance(e, bmesh.types.BMEdge)]
-
-        curves.extend(make_curve(edges))
+        curves.extend(
+            make_curve(
+                # Edge'lerden Curve yap
+                [e for e in cut if isinstance(e, bmesh.types.BMEdge)]
+            )
+        )
 
     return curves
 
@@ -294,38 +305,48 @@ class NCNC_OT_GCodeConvert(Operator):
 
         # Eğer Yazı ise, objenin datası Curve'ye çevrilerek alınır
         if obj_orj.type == "FONT" and not len(obj_orj.modifiers) and not obj_orj.data.extrude and \
-           not obj_orj.data.bevel_object and not obj_orj.data.bevel_depth and not obj_orj.data.follow_curve and \
-           obj_orj.data.bevel_mode != 'PROFILE':
+           not obj_orj.data.bevel_object and not obj_orj.data.bevel_depth and not obj_orj.data.follow_curve:
             obj = obj_orj.copy()
             obj.data = get_data_text_object(context, obj_orj)
             if not obj.data:
                 return {'CANCELLED'}
+            obj.data.transform(obj_orj.matrix_world)
+            obj.matrix_world = Matrix()
 
         # Curve ise veya kütük yok ise direkt kopyala
-        elif obj_orj.type == "CURVE":
+        elif obj_orj.type == "CURVE" and not len(obj_orj.modifiers) and not obj_orj.data.extrude and \
+           not obj_orj.data.bevel_object and not obj_orj.data.bevel_depth:
             obj = obj_orj.copy()
             obj.data = obj.data.copy()
+            obj.data.transform(obj_orj.matrix_world)
+            obj.matrix_world = Matrix()
 
         # Eğer Mesh ise ve kütük yok ise mesh'i al
-        elif not stock:
-            obj = obj_orj.copy()
-
+        elif not stock: # or obj_orj.type in ("FONT", "CURVE"):
             # Grafiklerden modifiye edilmiş objeyi alıyoruz.
             depsgraph = bpy.context.evaluated_depsgraph_get()
             object_eval = obj_orj.evaluated_get(depsgraph)
 
-            # Oluşan objenin datasını kopyalıyoruz
-            obj.data = bpy.data.meshes.new_from_object(object_eval)
+            # Yeni obje oluşturuyoruz
+            obj = bpy.data.objects.new("Sil", bpy.data.meshes.new_from_object(object_eval))
+            obj.data.transform(obj_orj.matrix_world)
+            obj.matrix_world = Matrix()
 
-        # Eğer Mesh ise ve kütük var ise kütükten çıkart
+        # Eğer 3D Obje ise ve kütük var ise kütükten çıkart
         else:
             # Kütüğün kopyasını oluşturuyoruz
             obj = stock.copy()
 
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            obj_dif = bpy.data.objects.new("Sil", bpy.data.meshes.new_from_object(obj_orj.evaluated_get(depsgraph)))
+            obj_dif.data.transform(obj_orj.matrix_world)
+            obj_dif.matrix_world = Matrix()
+
             # Hedef objeyi modifier uygulayarak kütükten çıkartıyoruz.
             mod_bool = stock.modifiers.new('my_bool_mod', 'BOOLEAN')
             mod_bool.operation = 'DIFFERENCE'
-            mod_bool.object = obj_orj
+            # mod_bool.object = obj_orj
+            mod_bool.object = obj_dif
 
             # Grafiklerden modifiye edilmiş objeyi alıyoruz.
             depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -333,6 +354,11 @@ class NCNC_OT_GCodeConvert(Operator):
 
             # Oluşan objenin datasını kopyalıyoruz
             obj.data = bpy.data.meshes.new_from_object(object_eval)
+            obj.data.transform(obj.matrix_world)
+            obj.matrix_world = Matrix()
+
+            # Bool iiçin kullandığımız objeyi silebiliriz
+            deep_remove_to_object(obj_dif)
 
             # Orjinal Kütüğe şimdi eklediğimiz modifierleri temizliyoruz ki sonradan sorun çıkmasın
             stock.modifiers.remove(mod_bool)
@@ -367,8 +393,6 @@ class NCNC_OT_GCodeConvert(Operator):
             obj.data.dimensions = "3D"
 
         # Objenin boyutlarını uyguluyoruz.
-        obj.data.transform(obj.matrix_world)
-        obj.matrix_world = Matrix()
         self.obj = obj
 
         # Mesh'e dönüştürüp, Z'de uç noktaları buluyoruz

@@ -87,6 +87,10 @@ class NCNC_PT_Stock(Panel):
 
         row = layout.row(align=True)
         row.prop(pr, "stock")
-        row.prop(pr, "stock_wire",
-                 text="",
-                 icon="MOD_WIREFRAME" if pr.stock_wire else "SNAP_VOLUME")
+        if pr.stock:
+            row.prop(pr, "stock_wire",
+                     text="",
+                     icon="MOD_WIREFRAME" if pr.stock_wire else "SNAP_VOLUME")
+
+        row = layout.row(align=True)
+        row.label(text="For Only Mesh Objects")
