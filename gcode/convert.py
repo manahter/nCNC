@@ -5,7 +5,7 @@ import bmesh
 
 from bpy.types import Operator
 from mathutils import Matrix, Vector
-from mathutils.geometry import intersect_line_line_2d
+from mathutils.geometry import intersect_line_line_2d, interpolate_bezier
 from bpy.props import StringProperty, FloatProperty, IntProperty, FloatVectorProperty
 
 from ..utils.nVector import nVector
@@ -13,8 +13,9 @@ from ..utils import nCompute
 from ..objects.configs.props import S
 
 # TODO !!!
-#   Text için; Eğer 3D şekil verildiyse, 3D olarak al. Değilse, Eğri olarak al
-#
+#   Mil için ofseti ekleyelim
+#   Clearence'da pir path atlayarak sonrakinin içini temizleme özelliğini ekle
+#   Mesh obje dilimlenirken, G2-G3 uyumluluk modu isteği ekleyelim
 
 
 def deep_remove_to_object(obj):
@@ -403,15 +404,15 @@ class NCNC_OT_GCodeConvert(Operator):
         # Oluşan mesh'i temizliyoruz
         obj.to_mesh_clear()
 
-        ##########################################
-        ########################################## DiLiMLE
+        # #########################################
+        # ######################################### DiLiMLE
         depth = conf.depth
         step = conf.step
         if obj.type == "MESH":
-            # TODO önce objenin tümünün düzlem olup olmadığını kontrol et.
-
             # Mesh dilimlenip, Curvelere dönüştürülür ve listede tutulur.
             self.curve_list = dilimle(obj.data.copy(), step)
+            # TODO !!! Dilimlemeden sonra bir de yüzeyi gez seçeneği ekleyelim. Bu seçenek de, Z'de değil de, yüzeyi
+            #  Y'de dilimlesin. Sonra üstteki diğer dilimleme seçeneğinde son katmanı gezmesini iptal edelim
 
             depth = step
 
@@ -576,6 +577,8 @@ class NCNC_OT_GCodeConvert(Operator):
 
         return val
 
+    # Faydalanıldı:
+    #   https://behreajj.medium.com/scripting-curves-in-blender-with-python-c487097efd13
     def bezier(self, subcurve, reverse=False):
         conf = self.conf
         point_count = len(subcurve.bezier_points) - (0 if subcurve.use_cyclic_u else 1)
@@ -607,52 +610,18 @@ class NCNC_OT_GCodeConvert(Operator):
             ask_center = []
             ask_line = []
 
-            # Ask these ratios between the two points.
-            for i in [0.25, 0.5, 0.75]:
-                ps = nVector.bul_bezier_nokta_4p1t(i, m1, hr, hl, m2)
+            # Eğri üzerinden aldığımız noktaları sorguluyoruz
+            for ps in interpolate_bezier(m1, hr, hl, m2, 5)[1:-1]:
                 ask_center.append(nVector.yuvarla_vector(conf.round_circ, nCompute.circle_center(m1, ps, m2)))
                 ask_line.append(nVector.bul_dogru_uzerindemi_3p(m1, m2, ps))
 
-            # If Line
-            if all(ask_line):
-                if j == 0:
-                    point_list.append(m1)
-                point_list.append(nVector.bul_dogrunun_ortasi_2p(m1, m2))
-                point_list.append(m2)
+            # Noktalar düz çizgi veya  Çember dilimi oluşturuyorsa
+            if all(ask_line) or (not conf.as_line and ask_center[0] == ask_center[1] == ask_center[2]):
+                point_list.extend(interpolate_bezier(m1, hr, hl, m2, 3)[j != 0:])
 
-            # If Circle
-            elif not conf.as_line and ask_center[0] == ask_center[1] == ask_center[2]:
-                if j == 0:
-                    point_list.append(m1)
-                point_list.append(nVector.bul_bezier_nokta_4p1t(0.5, m1, hr, hl, m2))
-                point_list.append(m2)
-
-            # If you want a Line rather than a Curve
-            elif conf.as_line:
-                resolution = subcurve.resolution_u
-                step = 1 / resolution / 2
-                for i in range(resolution * 2 + 1):
-                    o = nVector.bul_bezier_nokta_4p1t(step * i, m1, hr, hl, m2)
-                    if i != 0 or j == 0:
-                        point_list.append(o)
-
-            # For Curve
+            # Bezier veya Poly isteniyorsa
             else:
-                # Make the resolution even number
-                resolution = math.ceil(subcurve.resolution_u / 2.) * 2
-
-                # Step rate
-                step = 1 / resolution
-
-                # TODO: Bizim bezier üzerinde nokta bulma fonksiyonu yerine, var olan şuradaki fonksiyonu dene
-                #  -> interpolate_bezier
-                # https://behreajj.medium.com/scripting-curves-in-blender-with-python-c487097efd13
-
-                # Find as many points as resolution along the curve
-                for i in range(resolution + 1):
-                    o = nVector.bul_bezier_nokta_4p1t(step * i, m1, hr, hl, m2)
-                    if not j or i:
-                        point_list.append(o)
+                point_list.extend(interpolate_bezier(m1, hr, hl, m2, (subcurve.resolution_u * 2 + 1))[j != 0:])
 
         # Continue the process at the near end of the next path.
         if reverse:
@@ -718,8 +687,11 @@ class NCNC_OT_GCodeConvert(Operator):
     def line(self, vert0, vert1, new_line=False, first_z=None):
         r = self.roll
         # TODO: First Z'yi düzenle. Objenin tüm vertexlerinin genelinden bulsun first Z'yi
+        #   First Z, bu haliyle, Stock'un en yüksek noktwsına iniyor, sonra ZigZag XY'ye gidiyor.
+        #   Bunun yerine, SafeZ'ye yükselip, ordan devam etse daha iyi olabilir.
         if new_line:
-            self.code = f"G0 Z{r(z=first_z or self.max_z)}"
+            # self.code = f"G0 Z{r(z=first_z or self.max_z)}"
+            self.code = f"G0 Z{r(z=self.safe_z or first_z or self.max_z)}"
             self.code = f"G0 X{r(x=vert0.x)} Y{r(y=vert0.y)}"
             self.code = f"G1 Z{r(z=vert0.z)}"
         # else:
@@ -729,6 +701,7 @@ class NCNC_OT_GCodeConvert(Operator):
     # Ref: https://b3d.interplanety.org/en/how-to-create-mesh-through-the-blender-python-api/
     def clearance_zigzag(self, curve=None):
         """Obj type must [Curve or Text] and shape 3D and fill"""
+        # TODO !!! İçini temizlemeye başlarken, Z de direkt alçalıyor. Bunu düzeltelim mi düşün !!!
 
         if curve:
             obj = bpy.data.objects.new("object_name", curve.copy())
@@ -898,8 +871,6 @@ class NCNC_OT_GCodeConvert(Operator):
                     # Şimdiki çizgiyi oluştur.
                     line_list.append((v_lnk, v_lst))
 
-                    # self.line(v_prv, v_lnk)
-                    # self.line(v_lnk, v_lst)
                     v_prv = v_lst
                     g.remove(l_cur)
                     revrs = not revrs
@@ -911,11 +882,9 @@ class NCNC_OT_GCodeConvert(Operator):
             if len(g) and not v_prv:
                 if revrs:
                     line_list.append((g[0][1], g[0][0], True))
-                    # self.line(g[0][1], g[0][0], new_line=True)
                     v_prv = g[0][0]
                 else:
                     line_list.append((g[0][0], g[0][1], True))
-                    # self.line(g[0][0], g[0][1], new_line=True)
                     v_prv = g[0][1]
                 g.remove(g[0])
                 revrs = not revrs

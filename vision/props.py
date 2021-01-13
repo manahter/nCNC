@@ -127,7 +127,7 @@ mill_shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
 mill_batch = None
 
 
-def mill_callback(cls, self, context):
+def mill_callback(self, context):
     if not register_check(context):
         return
 
