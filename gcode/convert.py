@@ -14,8 +14,7 @@ from ..objects.configs.props import S
 
 # TODO !!!
 #   Mil için ofseti ekleyelim
-#   Clearence'da pir path atlayarak sonrakinin içini temizleme özelliğini ekle
-#   Mesh obje dilimlenirken, G2-G3 uyumluluk modu isteği ekleyelim
+#   Poly obje çizilirken, G2-G3 uyumluluk modu isteği ekleyelim
 
 
 def deep_remove_to_object(obj):
@@ -57,14 +56,14 @@ def get_data_text_object(context, obj):
 def biless(data, bilesen):
     """Vertexleri birleştirir"""
 
-    # Birleşendeki son Vertexi alıyoruz ve datadan o vertex bağlı diğerlerini alıyoruz.
+    # Birleşendeki son Vertexi alıyoruz ve datadan o vertex bağlı diğerlerini bulup alıyoruz.
     _verts = data[bilesen[-1].index].copy()
 
     # Vertexleri aldık içini temizleyelim.
     data[bilesen[-1].index].clear()
 
-    # Bitir, 3 taneden az vertex varsa, bilesen 2 taneden az ise, vertexlerin hepsi zaten birlesende varsa
-    if (len(_verts) < 3) or (len(bilesen) < 2) or len(set(_verts) - set(bilesen)) < 1:
+    # Bitir, 3 taneden az vertex varsa, bilesen 2 taneden az ise, vertexlerin ilki ve sonuncusu aynıysa dön
+    if (len(_verts) < 3) or (len(bilesen) < 2) or bilesen[0] == bilesen[-1]:  # len(set(_verts) - set(bilesen)) < 1 or
         return bilesen
 
     # Vertexlerdeki son
@@ -147,17 +146,25 @@ def make_curve(edges):
             if ind in inds:
                 # Önceki eklenen edge ile şimdi eklenen edge vertexlerini birleştir.
                 verts = (*inds[ind], *e.verts[:])
+
+                # Ortanca Vertex bulunur
                 mid = max(verts, key=verts.count)
+
+                # Vertexler kümelenir ve ortanca çıkartılır
                 vts = list(set(verts))
                 vts.remove(mid)
+
+                # Vertexler, sırasına göre gruplanır.
                 inds[ind] = [vts[0], mid, vts[1]]
             else:
                 inds[ind] = e.verts[:]
 
     # print("indexes", *inds.values(), sep="\n")
     polys = []
+
     for ind, verts in inds.items():
         if len(verts) < 3:
+            # polys.append(verts)
             verts.clear()
             continue
         polys.append(biless(inds, verts))
@@ -172,14 +179,21 @@ def make_curve(edges):
             if len(poly) < 2:
                 continue
 
-            # Başlangıç noktasını değiştir. X ve Y de en küçük noktayı başlangıç noktası yap
-            ind = poly.index(min(poly, key=lambda k: [k.co.x, k.co.y]))
-            bas = poly[:ind]
-            poly = poly[ind:]
-            poly.extend(bas)
-
             spline = curve.splines.new("POLY")
-            spline.use_cyclic_u = True
+
+            # Burada Kapalı Curve olup olmadığına karar vermek için, ilk ve son noktaları arasındaki mesafeye bakıyoruz
+            if (poly[0].co.xyz - poly[-1].co.xyz).length < .01:
+                spline.use_cyclic_u = True
+
+                # Fazlalık yapmasın diye siliyoruz. Çünkü ilk ve son vertex aynı.
+                poly.remove(poly[-1])
+
+                # Kapalı Curve ise Başlangıç noktasını değiştir. X ve Y de en küçük noktayı başlangıç noktası yap
+                ind = poly.index(min(poly, key=lambda k: [k.co.x, k.co.y]))
+                bas = poly[:ind]
+                poly = poly[ind:]
+                poly.extend(bas)
+
             spline.points[0].co.xyz = poly[0].co.xyz
             for v in poly[1:]:
                 spline.points.add(1)
@@ -701,8 +715,6 @@ class NCNC_OT_GCodeConvert(Operator):
     # Ref: https://b3d.interplanety.org/en/how-to-create-mesh-through-the-blender-python-api/
     def clearance_zigzag(self, curve=None):
         """Obj type must [Curve or Text] and shape 3D and fill"""
-        # TODO !!! İçini temizlemeye başlarken, Z de direkt alçalıyor. Bunu düzeltelim mi düşün !!!
-
         if curve:
             obj = bpy.data.objects.new("object_name", curve.copy())
         else:
