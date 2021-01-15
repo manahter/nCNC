@@ -37,13 +37,13 @@ class NCNC_PT_ObjectConfigs(Panel):
         isok = props.check_for_include(obj)
         tip_egri = obj.type in ("CURVE", "FONT")
         if isok:
-            if tip_egri:
-                a = row.split()
-                a.prop(props, "as_line",
-                       icon="IPO_CONSTANT" if props.as_line else "IPO_EASE_IN_OUT",
-                       icon_only=True,
-                       emboss=False
-                       )
+            # if tip_egri:
+            a = row.split()
+            a.prop(props, "as_line",
+                   icon="IPO_CONSTANT" if props.as_line else "IPO_EASE_IN_OUT",
+                   icon_only=True,
+                   emboss=False
+                   )
             row.prop(props, "milling_strategy", icon_only=True)
 
         # if not props.check_for_include(obj):

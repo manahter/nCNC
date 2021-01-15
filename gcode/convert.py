@@ -15,6 +15,12 @@ from ..objects.configs.props import S
 # TODO !!!
 #   Mil için ofseti ekleyelim
 #   Poly obje çizilirken, G2-G3 uyumluluk modu isteği ekleyelim
+#   Offset uygulanıp uygulanmayacağı Property
+
+# Faydalan:
+#   İki çizginin kesişen noktası:
+#       2D -> mathutils.geometry.intersect_line_line_2d(lineA_p1, lineA_p2, lineB_p1, lineB_p2)
+#       3D -> mathutils.geometry.intersect_line_line(v1, v2, v3, v4)
 
 
 def deep_remove_to_object(obj):
@@ -75,7 +81,7 @@ def biless(data, bilesen):
     return biless(data, bilesen)
 
 
-def partla(bm):
+def bmesh_independent_parts(bm):
     """BMesh'i bağımsız parçalarına ayırır.
     return:
     [
@@ -122,7 +128,7 @@ def is_planar(edges):
     return True
 
 
-def planar_parts(bm):
+def bmesh_planar_parts(bm):
     """Düzlemsel parçaları döndürür. Edgeleri parçalarına ayırır ve düzlemsel olup olmadıklarını sorgular.
     return:
     [
@@ -130,10 +136,10 @@ def planar_parts(bm):
         { Edge1, Edge2..}   -> Part2
     ]
     """
-    return [list(p["edges"]) for p in partla(bm) if is_planar(p["edges"])]
+    return [list(p["edges"]) for p in bmesh_independent_parts(bm) if is_planar(p["edges"])]
 
 
-def make_curve(edges):
+def bmedges_to_curve(edges):
     """BMEdge'leri birleştirerek curve oluşturur.
     return:
     [ curve ] or [ ]
@@ -203,13 +209,13 @@ def make_curve(edges):
     return []
 
 
-def faces_between_points(bm, min_z, max_z):
+def faces_in_z_range(bm, min_z, max_z):
     """Z ekseninde min_z ile max_z arasındaki yüzeyleri döndürür."""
     # bm.faces.ensure_lookup_table()
     return [f for f in bm.faces[:] if all([min_z <= v.co.z <= max_z for v in f.verts[:]])]
 
 
-def dilimle(data, step_z):
+def bmesh_slice(data, step_z):
     # TODO !!!
     #   Yüzey katmanlarını da taramayı ekleyelim
 
@@ -219,7 +225,7 @@ def dilimle(data, step_z):
     bmesh.ops.weld_verts(bm)
     bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(1.7), verts=bm.verts, edges=bm.edges)
 
-    for planar_edges in planar_parts(bm):
+    for planar_edges in bmesh_planar_parts(bm):
         # Düzlemsel parçada yüzey içindeki gereksiz BMEdge'leri siliyoruz.
         for e in planar_edges[::-1]:
             # Bu kenar 2 tane yüzeyi mi birleştiriyor. O zaman sil
@@ -227,7 +233,7 @@ def dilimle(data, step_z):
                 planar_edges.remove(e)
 
         # Curve oluşturuyoruz
-        curves.extend(make_curve(planar_edges))
+        curves.extend(bmedges_to_curve(planar_edges))
 
         # BMesh'den düzlemsel parçayı siliyoruz.
         bmesh.ops.delete(bm, geom=planar_edges, context="EDGES")
@@ -250,8 +256,8 @@ def dilimle(data, step_z):
 
         # TODO !!Çok yavaş bir yöntem olduğu için şimdilik iptal
         #   Arada yüzey kaldıysa, yüzeyide traşla
-        # for f in faces_between_points(bm, step, step+step_z):
-        #     curves.extend(make_curve(f.edges))
+        # for f in faces_in_z_range(bm, step, step+step_z):
+        #     curves.extend(bmedges_to_curve(f.edges))
 
         step -= step_z
         if step < min_z and step + step_z != min_z:
@@ -259,13 +265,66 @@ def dilimle(data, step_z):
             step = min_z
 
         curves.extend(
-            make_curve(
+            bmedges_to_curve(
                 # Edge'lerden Curve yap
                 [e for e in cut if isinstance(e, bmesh.types.BMEdge)]
             )
         )
 
     return curves
+
+
+def get_circular_points_indexes(point_list):
+    # Ovallik sorgulamak için minimum 5 nokta ele alınır
+    ask_points = []
+    ask_center_circls = []
+
+    for i, p in enumerate(point_list):
+
+        loc = p # p.co.to_3d() - self.step_vector
+
+        ask_points.append(loc)
+
+        if len(ask_points) == 3:
+            # TODO 1 yazan yeri, Round'a bağla -> conf.round_circ
+            ask_center_circls.append(nVector.yuvarla_vector(1, nCompute.circle_center(*ask_points)))
+            ask_points.remove(ask_points[0])
+
+
+    paket = []
+    indexler = []
+
+    # TODO Peketleme sayısı için UI'de property oluştur
+    paketleme_sayisi = 5-2
+
+    son_index = len(ask_center_circls) - 1
+
+    # print("Centers:\n", *ask_center_circls, sep="\n", end="\n\n")
+
+    for i, p in enumerate(ask_center_circls):
+        paket.append((i, p))
+        if not i:
+            continue
+
+        if len(paket) > 1 or i == son_index:
+            # Son iki yayın merkezi eşit değilse  yada  sonuncu indexteysek
+            if len(paket) > 1 and paket[-1][1] != paket[-2][1]:
+
+                # Paket sayısı, istenen sayıdaysa veya daha büyükse, birikenleri paketle
+                if len(paket) > paketleme_sayisi:
+                    indexler.append((paket[0][0], i + 1))
+                    paket = []
+                # Az paket var ve sonuncu yayın merkezi uymadıysa, ilk yayı paketten çıkart
+                else:
+                    paket.remove(paket[0])
+
+            elif i == son_index:
+                if len(paket) > paketleme_sayisi:
+                    # indexler.append((paket[0][0], paket[-2][0] + 2))
+                    indexler.append((paket[0][0], i + 2))
+                    paket = []
+    print(*indexler, sep="\n")
+    return indexler
 
 
 class NCNC_OT_GCodeConvert(Operator):
@@ -424,7 +483,7 @@ class NCNC_OT_GCodeConvert(Operator):
         step = conf.step
         if obj.type == "MESH":
             # Mesh dilimlenip, Curvelere dönüştürülür ve listede tutulur.
-            self.curve_list = dilimle(obj.data.copy(), step)
+            self.curve_list = bmesh_slice(obj.data.copy(), step)
             # TODO !!! Dilimlemeden sonra bir de yüzeyi gez seçeneği ekleyelim. Bu seçenek de, Z'de değil de, yüzeyi
             #  Y'de dilimlesin. Sonra üstteki diğer dilimleme seçeneğinde son katmanı gezmesini iptal edelim
 
@@ -671,6 +730,7 @@ class NCNC_OT_GCodeConvert(Operator):
 
     def poly(self, subcurve):
         conf = self.conf
+        as_line = conf.as_line
         r = self.roll
 
         point_list = [i.co.to_3d() - self.step_vector for i in subcurve.points]
@@ -678,9 +738,57 @@ class NCNC_OT_GCodeConvert(Operator):
         if not point_list:
             return
 
+        # ####################### Dairesel hesap kısmı
+        # Poly üzerindeki Dairesel Noktaların indexlerini alıyoruz, sonra bu aralıktaki noktaları G2-3 koduna çeviriyoz
+        if not as_line:
+            circ_p_inds = get_circular_points_indexes(point_list)
+            ind_len = len(circ_p_inds)
+            ind_bas = circ_p_inds[0][0] if ind_len else None
+            ind_son = circ_p_inds[0][1] if ind_len else None
+            # #######################
+
         for i, p in enumerate(point_list):
 
             loc = p  # p.co.to_3d() - self.step_vector
+
+            # #######################
+            # ####################### Dairesel hesap kısmı
+            if not as_line and ind_len:
+
+                # İndex, Dairesel aralıktaysa, atlayalım
+                if ind_bas < i < ind_son:
+                    continue
+
+                # İndex, dairesel aralığın son noktasındaysa, G2-G3 kodunu ekle ve varsa sonraki dairesel aralığı tanıla
+                if i == ind_son:
+
+                    p1 = point_list[ind_bas]
+                    p2 = point_list[i - 1]
+                    p3 = point_list[i]
+                    m = nVector.bul_cember_merkezi_3p(p1, p2, p3, duzlem=conf.plane)
+
+                    I = m.x - p1.x if conf.plane != "G19" else 0
+                    J = m.y - p1.y if conf.plane != "G18" else 0
+                    K = m.z - p1.z if conf.plane != "G17" else 0
+
+                    # !!! For very large CNC machines, this value should be increased. ( limit: 800 )
+                    # G1: as line / G1: as line / Calculate G2 or G3
+                    b = int(max(abs(I), abs(J), abs(K)) > 800) or nVector.bul_yonu_1m3p(m, p1, p2, p3)
+
+                    self.code = f"G{b} X{r(x=p3.x)} Y{r(y=p3.y)} Z{r(z=p3.z)}" + \
+                                ("", f" I{r(i=I)} J{r(j=J)} K{r(k=K)}")[b > 1] + \
+                                ("", f" F{conf.feed}")[i == 0]
+
+                    # point_list[i-3:i]
+                    # self.code =
+                    circ_p_inds.remove(circ_p_inds[0])
+
+                    ind_len = len(circ_p_inds)
+                    ind_bas = circ_p_inds[0][0] if ind_len else None
+                    ind_son = circ_p_inds[0][1] if ind_len else None
+                    continue
+            # #######################
+            # #######################
 
             if i == 0:
                 self.starting_code(point_list)
@@ -701,12 +809,11 @@ class NCNC_OT_GCodeConvert(Operator):
     def line(self, vert0, vert1, new_line=False, first_z=None):
         r = self.roll
         # TODO: First Z'yi düzenle. Objenin tüm vertexlerinin genelinden bulsun first Z'yi
-        #   First Z, bu haliyle, Stock'un en yüksek noktwsına iniyor, sonra ZigZag XY'ye gidiyor.
-        #   Bunun yerine, SafeZ'ye yükselip, ordan devam etse daha iyi olabilir.
         if new_line:
             # self.code = f"G0 Z{r(z=first_z or self.max_z)}"
-            self.code = f"G0 Z{r(z=self.safe_z or first_z or self.max_z)}"
+            self.code = f"G0 Z{r(z=self.safe_z or first_z or self.max_z)}"  # Bu satır ile
             self.code = f"G0 X{r(x=vert0.x)} Y{r(y=vert0.y)}"
+            self.code = f"G0 Z{r(z=first_z or self.max_z)}"     # Bu satırı, sadece clearence ile mi kullansak
             self.code = f"G1 Z{r(z=vert0.z)}"
         # else:
         #    self.code = f"G0 X{r(x=vert0.x)} Y{r(y=vert0.y)} Z{r(z=vert0.z)}"
