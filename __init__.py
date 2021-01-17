@@ -33,6 +33,7 @@ Eklenecek Özellikler;
 Yapılamayanlar;
     * Kod satırları için TextEditör benzeri ayrı bir alan oluşturulabilir mi araştır.
         - Özelleştirilmiş Yeni Edtör alanı oluşturulamıyor. Node Editor gib alanlar ancak oluşturulabiliyor.
+        
 """
 
 
