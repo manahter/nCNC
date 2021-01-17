@@ -148,10 +148,12 @@ class NCNC_PR_TextLine(PropertyGroup):
         prev_xyz = Vector(self.prev_line.xyz)
         xyz = Vector(self.xyz)
 
+        # G0 - G1 için;
         if mv in (0, 1):
             self.length = (prev_xyz - xyz).length
             return prev_xyz, xyz
 
+        # Buradan sonrası, G2 - G3 - I J K R için
         # If the R code is used, we must convert the R code to IJK
         # +R: Short angle way
         # -R: Long angle way
@@ -212,14 +214,15 @@ class NCNC_PR_TextLine(PropertyGroup):
         except:
             self.error = True
             return []
-
         if v1.cross(v2).z > 0 and mv == 2:
             angle = math.radians(360) - angle
         elif v1.cross(v2).z < 0 and mv == 3:
             angle = math.radians(360) - angle
         elif v1.cross(v2).z == 0:
-            angle = math.radians(360 if not self.r else 180)
-
+            if self.r or v1.x == v2.x or v1.y == v2.y:
+                angle = math.radians(180)
+            else:
+                angle = math.radians(360)
         self.length = angle * v1.length
 
         # Angle between V1 and V2 (DEGREES)
