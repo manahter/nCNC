@@ -274,10 +274,28 @@ def bmesh_slice(data, step_z):
     return curves
 
 
-def get_circular_points_indexes(point_list):
+def get_circular_points_indexes(point_list, round_circ=1, min_point=5, calc_line_len=False):
+    """Noktalara sırayla bakar, peş peşe olan min_point sayısı kadar noktadan bir çember geçiyorsa,
+    çemberin geçtiği noktaların indexini döndürür
+
+    :param point_list: Vector -> Nokta listesi
+    :param round_circ: int -> 3 noktadan geçen çemberin merkezi bulunduğunda, kaç basamaktan yuvarlansın
+    :param min_point: int -> En az kaç noktanın birleşimi çembersel kabul edilsin. Bunun 5'ten küçük olması önerilmez.
+                             Çünkü dörtgenleri de çembersel olarak algılar ve bu bir hata olur
+    :param calc_line_len: bool -> Hesaplama yaparken, yan yana olan çizgilerin uzunlukları eşit mi kontrol edilsin mi?
+
+    return: [(4, 8), (9, 13), (14, 18), (20, 27)]  -> 4 ile 8. indexler arasındaki noktalardan çember geçiyor...
+    """
     # Ovallik sorgulamak için minimum 5 nokta ele alınır
     ask_points = []
+
+    # 3'lü noktaların, merkezleri belirlenir.
     ask_center_circls = []
+
+    # Noktadan sonraki noktaya olan mesafe, uzunluk
+    ask_length = []
+
+    len_points = len(point_list)
 
     for i, p in enumerate(point_list):
 
@@ -285,30 +303,29 @@ def get_circular_points_indexes(point_list):
 
         ask_points.append(loc)
 
-        if len(ask_points) == 3:
-            # TODO 1 yazan yeri, Round'a bağla -> conf.round_circ
-            ask_center_circls.append(nVector.yuvarla_vector(1, nCompute.circle_center(*ask_points)))
-            ask_points.remove(ask_points[0])
+        if i + 1 < len_points:
+            ask_length.append(round((p - point_list[i + 1]).length, 1))
 
+        if len(ask_points) == 3:
+            ask_center_circls.append(nVector.yuvarla_vector(round_circ, nCompute.circle_center(*ask_points)))
+            ask_points.remove(ask_points[0])
 
     paket = []
     indexler = []
-
-    # TODO Peketleme sayısı için UI'de property oluştur
-    paketleme_sayisi = 5-2
-
+    paketleme_sayisi = min_point-2
     son_index = len(ask_center_circls) - 1
-
     # print("Centers:\n", *ask_center_circls, sep="\n", end="\n\n")
 
     for i, p in enumerate(ask_center_circls):
-        paket.append((i, p))
+        paket.append((i, p, ask_length[i]))
         if not i:
             continue
 
         if len(paket) > 1 or i == son_index:
-            # Son iki yayın merkezi eşit değilse  yada  sonuncu indexteysek
-            if len(paket) > 1 and paket[-1][1] != paket[-2][1]:
+            # Son iki yayın merkezi eşit değilse  ya da
+            # Sonuncu indexteysek ya da
+            # Uzunluklar eşit değilse
+            if len(paket) > 1 and (paket[-1][1] != paket[-2][1] or (calc_line_len and paket[-1][2] != paket[-2][2])):
 
                 # Paket sayısı, istenen sayıdaysa veya daha büyükse, birikenleri paketle
                 if len(paket) > paketleme_sayisi:
@@ -316,14 +333,22 @@ def get_circular_points_indexes(point_list):
                     paket = []
                 # Az paket var ve sonuncu yayın merkezi uymadıysa, ilk yayı paketten çıkart
                 else:
-                    paket.remove(paket[0])
+                    silincekler = []
+                    len_paket = len(paket)
+                    for no, j in enumerate(paket):
+                        ind = no + 1
+                        if (ind < len_paket) and (j != paket[ind]):
+                            silincekler.append(j)
+                    for s in silincekler:
+                        paket.remove(s)
+                    # paket.remove(paket[0])
 
             elif i == son_index:
-                if len(paket) > paketleme_sayisi:
+                if len(paket) >= paketleme_sayisi:
                     # indexler.append((paket[0][0], paket[-2][0] + 2))
                     indexler.append((paket[0][0], i + 2))
                     paket = []
-    print(*indexler, sep="\n")
+    # print(*indexler, sep="\n")
     return indexler
 
 
@@ -741,7 +766,11 @@ class NCNC_OT_GCodeConvert(Operator):
         # ####################### Dairesel hesap kısmı
         # Poly üzerindeki Dairesel Noktaların indexlerini alıyoruz, sonra bu aralıktaki noktaları G2-3 koduna çeviriyoz
         if not as_line:
-            circ_p_inds = get_circular_points_indexes(point_list)
+            circ_p_inds = get_circular_points_indexes(point_list,
+                                                      conf.round_circ,
+                                                      conf.min_verts_for_calc_curve,
+                                                      conf.control_line_len_for_calc_curve,
+                                                      )
             ind_len = len(circ_p_inds)
             ind_bas = circ_p_inds[0][0] if ind_len else None
             ind_son = circ_p_inds[0][1] if ind_len else None
@@ -761,7 +790,8 @@ class NCNC_OT_GCodeConvert(Operator):
 
                 # İndex, dairesel aralığın son noktasındaysa, G2-G3 kodunu ekle ve varsa sonraki dairesel aralığı tanıla
                 if i == ind_son:
-
+                    # TODO !!! Daireselleştirirken, parça boylarının aynı olması kuralını ekleyelim. Diğer türlü,
+                    #   daireye denk gelen başka bir nokta da daireden sanılabiliyor
                     p1 = point_list[ind_bas]
                     p2 = point_list[i - 1]
                     p3 = point_list[i]
@@ -887,6 +917,8 @@ class NCNC_OT_GCodeConvert(Operator):
             for v0, v1 in zip(verts[0::2], verts[1::2]):
                 if (v1[axis] - v0[axis]) < dist:
                     continue
+                # TODO !!! Burada hesaplama şu şekilde yapılmalı;
+                #     En yakın kenardan, distance çıkartılır. Bu kadar. Böylece döngülere gerek kalmaz
 
                 # Distance control step
                 step = dist / 2

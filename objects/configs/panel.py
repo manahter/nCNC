@@ -97,14 +97,17 @@ class NCNC_PT_ToolpathConfigsDetailConverting(Panel):
         col.enabled = props.included  # Tip uygun değilse buraları pasif yapar
         col.prop(props, "round_circ", slider=True)
         col.prop(props, "round_loca", slider=True)
-
-        col = layout.column(align=True)
+        col.separator()
         col.enabled = props.included  # Tip uygun değilse buraları pasif yapar
         if obj.type == "CURVE":
 
             col.prop(props, "resolution_general", slider=True, text="Resolution Curve (General)")
             if obj.data.splines.active:
                 col.prop(props, "resolution_spline", slider=True, text="Resolution Spline (in Curve)")
+
+        col.separator()
+        col.prop(props, "min_verts_for_calc_curve", slider=True)
+        col.prop(props, "control_line_len_for_calc_curve")
 
 
 class NCNC_PT_ToolpathConfigsDetailClearance(Panel):

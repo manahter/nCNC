@@ -195,6 +195,24 @@ class NCNC_PR_ObjectConfigs(PropertyGroup):
                     "[0-6] = Rough analysis - Detailed analysis"
     )
 
+    # minimum vertices count for calculate curve
+    # Eğriyi hesaplamak için minimum nokta sayısı
+    min_verts_for_calc_curve: IntProperty(
+        name="Min Verts (for as Curve)",
+        default=5,
+        min=5,
+        #max=6,
+        update=reload_gcode,
+        description="Minimum vertices count for calculate curve (G2-G3) (default=5)\n"
+                    "[0-6] = Rough analysis - Detailed analysis"
+    )
+    control_line_len_for_calc_curve: BoolProperty(
+        name="Control line length for as Curve",
+        default=False,
+        description="Eğri oluştururken, komşu çizgilerin uzunluklarının eşitliği kontrol edilsin mi (G2-G3 için)",
+        update=update_included
+    )
+
     def resolution_general_set(self, value):
         if not self.id_data:
             return
