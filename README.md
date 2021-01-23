@@ -101,7 +101,4 @@ as Curve: Use curves and lines. Use all, including G2-G3.
 nCNC uses the MIT license. See [LICENSE](https://github.com/manahter/nCNC/blob/main/LICENSE) for more details.
 
 ## Support
-| [![iyzipay Method](https://www.iyzico.com/assets/images/content/logo.svg)](https://iyzi.link/AFuRiw)  | [![Amazon Gift](https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/Amazon.com-Logo.svg/300px-Amazon.com-Logo.svg.png)](https://www.amazon.com/hz/wishlist/ls/1FK123QWD8L6T?ref_=wl_share)   |
-|:------------:|:---------------:|
-| You can support my work with a donation through iyzico. Doing so means I'll be able to spend more time working on open source and creating content. | Send a gift. If donations don't feel like the best way to support my work, consider sending me a gift from my wish list. I regularly update it with things I'd appreciate (please include a note so I know who sent it). |
-| [![iyzipay Method](https://img.shields.io/badge/-donate-1e64ff?style=for-the-badge)](https://iyzi.link/AFvxng)| [![Amazon Gift](https://img.shields.io/badge/-Send_Gift-fe9a2f?style=for-the-badge)](https://www.amazon.com/hz/wishlist/ls/1FK123QWD8L6T?ref_=wl_share) |
+This section has been removed as there is no supporter. If you want to support, contact me.
