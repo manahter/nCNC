@@ -80,8 +80,8 @@ def closest_dist_line(bm, v0, v1):
 
 def disolve_verts_on_edge(edges, dist=0.0):
     """ Bu fonksiyon artık kullanılmıyor. Belki sonra işe yarar. Ama bunun yerine blender'da kullanışlılar var.
-    :edges: BMEdge
-    :dist: distance
+    :param edges: BMEdge
+    :param dist: distance
     """
 
     dist_vec = Vector((dist, dist, dist))
