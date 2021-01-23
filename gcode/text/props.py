@@ -214,11 +214,13 @@ class NCNC_PR_TextLine(PropertyGroup):
         except:
             self.error = True
             return []
-        if v1.cross(v2).z > 0 and mv == 2:
+
+        cross = v1.cross(v2).z
+        if cross > 0 and mv == 2:
             angle = math.radians(360) - angle
-        elif v1.cross(v2).z < 0 and mv == 3:
+        elif cross < 0 and mv == 3:
             angle = math.radians(360) - angle
-        elif v1.cross(v2).z == 0:
+        elif cross == 0:
             if self.r or v1.x == v2.x or v1.y == v2.y:
                 angle = math.radians(180)
             else:
