@@ -2,12 +2,202 @@ import math
 import bpy
 from mathutils import Vector
 from mathutils.geometry import intersect_line_line_2d, intersect_point_line, intersect_line_line
+import mathutils
+
+# TODO Dönüş yoktalarına Round eklenebilir. Mesela bir dikdörgene dış offset uygulandığında, köşeleri round olacak
+#   şekilde düzenlenebilir.
 
 
+# ############################################### ###########################
+# ############################################### Offset Uygula, Curve oluştur
+def new_poly_curve(polys, add_screen=False):
+    """Noktalardan yeni bir Poly oluşturulur.
+
+    :param polys: [ [poly_points], [...], ... ] -> Poly pointlerin listesi
+    :param add_screen: bool:
+        True -> Ekrana ekle ve objeyi döndür
+        False-> Ekrana ekleme, curve'ü döndür
+
+    return: object or curve
+    """
+    # Curve Data oluştur
+    curve = bpy.data.curves.new("npoly", "CURVE")
+
+    for points in polys:
+        # Poly spline oluştur
+        curve.splines.new("POLY")
+
+        # ilk ve son nokta eşitse, son noktayı sil
+        if points[0] == points[-1]:
+            points.pop(-1)
+
+        # Kapalı yap
+        curve.splines[-1].use_cyclic_u = True
+
+        # Curve Pointleri al
+        curpt = curve.splines[-1].points
+
+        # Gelen point sayısı kadar Curve'da point oluşturulur
+        curpt.add(len(points) - 1)
+
+        # Gelen pointler Curve'ye eklenir
+        for j, v in enumerate(points):
+            if v.xyz != curpt[-1].co.xyz:
+                curpt[j].co.xyz = v
+
+    if add_screen:
+        # Obje oluşturlup sahneye eklenir
+        obje = bpy.data.objects.new("npoly", curve)
+        obje.data.dimensions = '3D'
+        bpy.context.scene.collection.objects.link(obje)
+        return obje
+    return curve
+
+
+def offset(verts, distance=.2, orientation=-1):
+    """Poly'ye offset uygular ve yeni Poly noktalarını döndürür.
+
+    :param verts: VectorList:    Poly'nin pointleri
+    :param distance: float: Mesafe
+    :param orientation: int: -1 or +1 -> iç veya dış offset
+
+    return VectorList: Poly'nin offset almnış hali
+    """
+    # Poly çizgileri kesişmez hale getirilir
+    non_intersecting_poly(verts)
+
+    # İç mi dış mı olduğu düzenlenir.
+    orientation *= -1 if mathutils.geometry.normal(verts).z > 0 else 1
+
+    # Peş peşe aynı olan noktaları temizle
+    disolve_doubles(verts)
+
+    # Her noktadaki açı bulunur
+    angles = calc_verts_angles(verts)
+    angles.append(angles[0])
+
+    # Her noktadaki açıortay bulunur
+    bisectors = calc_verts_bisector(verts)
+    bisectors.append(bisectors[0])
+
+    # Üstten beri listenin sonuna ilk noktayı tekrar ekliyoruz çünkü altlarda biryerde çıkan sorunu engelliyoruz böylece
+    verts.append(verts[0])
+
+    ilkparca = []
+    parcalar = [ilkparca]
+
+    # Tüm açıortay vektörlerini sırayla al
+    for j, i in enumerate(bisectors):
+        # Elimizde bir dik üçgen olduğunu düşünelim
+        # i noktadaki açıyı biliyoruz -> angles[j]
+        # Açının yanındaki kenar uzunluğu -> distance
+        # Açıortay vektörünün uzunluğunu hipotenüs olarak düşünelim ve bunu bulalım
+        # Sonra açıortay doğrultusunda, hipotenüs kadar uzat
+        # Kısaca OFFSETI BUL
+        # açı 180'den büyükse, karşı açıyı kullan (360'dan çıkart)
+        if angles[j] > math.radians(180):
+            angle = math.radians(360) - angles[j]
+            ti = (distance / math.sin(angle / 2))
+            v = verts[j] - i * ti * orientation
+        else:
+            ti = (distance / math.sin(angles[j] / 2))
+            v = verts[j] + i * ti * orientation
+
+        # TODO!!! Geri çekmede bazı yerlerde sorun yaşıyoruz, bunu çözelim
+        # ##########################################################
+        # Bir Önceki noktaya bak, içbükey mi, Dar açılıysa, geri çek
+        # ##########################################################
+        # if len(ilkparca) > 4:
+        if len(ilkparca) > 4 and orientation > 0:   # TODO -> Buraya geçici olarak orientation ekledik
+            # Eklediğimiz son 2 noktayı alıyoruz
+            e1 = ilkparca[-1]
+            e2 = ilkparca[-2]
+
+            # Eklediğimiz sondan ikinci noktayı, ama e1'den farklıysa alıyoruz. Farklı değilse, daha önceki nokta alınır
+            for t in ilkparca[::-1]:
+                if t != e1:
+                    e2 = t
+                    break
+
+            # Şimdi ekleyeceğimiz nokta ile son iki noktayı alıp, son noktada oluşan açıyı buluyoruz
+            ang = calc_verts_angles([e2, e1, v])[1]
+
+            # Eğer son noktadaki açı 90 dereceden küçükse, geri çekmek gerekebilir. Şimdi onu inceliyoruz.
+            if ang < math.radians(90):
+
+                # Noktadan çizgiye mesafe kontrolü
+                # Objedeki çizgileri sırayla geziyoruz
+                for n in range(len(verts)):
+                    if not n:
+                        continue
+
+                    # Objedeki sıradaki 2 nokta alınır
+                    p0 = verts[n-1]
+                    p1 = verts[n]
+
+                    # Eklediğimiz son noktanın obje çizgisine mesafesi bulunur
+                    c, ratio = intersect_point_line(e1, p0, p1)
+
+                    # Mesafe distance'den küçükse, Son nokta geri çekilir.
+                    mes = (c - e1).length
+                    if (1 >= ratio >= 0) and (mes + .01 < distance): # and (angles[j] < math.radians(180)):
+                        # Son noktadan şimdiki noktaya olan vektör (Kenar 1)
+                        v1 = v - e1
+                        # Objedeki yakın olduğumuz kenarın vektörü (Kenar 2)
+                        v2 = p0 - p1
+
+                        # Bu iki kenar arasındaki açı
+                        ang = v1.angle(v2)
+
+                        # Son noktadan şimdiki noktaya olan kenar ile objedeki yakın kenarın kesiştiği nokta
+                        ya = intersect_line_line(e1, v, p0, p1)[0]
+
+                        # Distance nokta, oluşturğumuz kenarın neresine geliyor (oran)
+                        ratio = abs(distance / math.sin(ang)) / (ya - v).length
+                        ilkparca[-1] = ya.lerp(v, ratio)
+
+        ilkparca.append(v)
+
+        # ##########################################################
+        # Kesişen çizgi varsa, kesişen kısımlarından parçalara ayır
+        parts = split_parts_from_intersect_in_self(ilkparca)
+        if parts:
+            # Eğer parçaların herhangi birisi, distance'den daha yakınsa ekleme.
+            for p in parts:
+                if not is_close_distance_to_points(verts, p, distance):
+                    parcalar.append(p)
+
+    parcalar_son = []
+
+    # Parçaların uygunluğu son kez kontrol edilir.
+    for parca in parcalar:
+
+        # parca başka parçanın içinde varsa diğer parçadan silinir.
+        for k in parcalar:
+            if parca == k or len(parca) > len(k):
+                continue
+            hepsi_var = True
+            for u in parca:
+                if u not in k:
+                    hepsi_var = False
+                    break
+            if hepsi_var:
+                for u in parca:
+                    k.remove(u)
+
+        # Yeni parçadaki noktalardan herhangi birisi Objeye, distance'dan fazla yakın mı?
+        # Yakın değilse bu parçayı ekle. Evet parça uygundur ve eklenebilir
+        if len(parca) < 3 or is_close_distance_to_points(verts, parca, distance) or is_2_poly_intersect(verts, parca):
+            continue
+
+        parcalar_son.append(parca)
+    return parcalar_son
+
+
+# ############################################### ###########################
+# ############################################### Noktalardaki, açıyı ve açıortay vektörünü bul
 def calc_verts_angles(verts):
     """Köşelerin açılarını bulur. Aynı sırayla listeye kaydeder."""
-    # TODO Warning !!! Deneysel
-
     if len(verts) < 3:
         return []
 
@@ -27,13 +217,14 @@ def calc_verts_angles(verts):
         v1 = p0 - p1
         v2 = p2 - p1
         angle = v1.angle(v2)
-        # TODO Açıları ya hepsi iç ya hepsi dış olarak buluyoruz ama hepsi iç mi dış mı onu belirleyemiyoruz.
+
+        # İç / Dış açı konusunu bu kısımda çözüyoruz
         # Sağa or Sola dönme durumuna göre, iç açıyı buluyor
         if v1.cross(v2).z > 0:
             angle = math.radians(360) - angle
 
         angles.append(angle)
-        print("angle", math.degrees(angle))
+        # print("angle", math.degrees(angle))
 
     return angles
 
@@ -58,34 +249,17 @@ def calc_verts_bisector(verts):
         p1 = verts[i]
         p2 = verts[i + 1 if i != last_vert else 0]
 
-        # TODO p2 noktasını bulurken, kesişen noktalarda, diğer aynı noktayı bulup, komşu noktası alınmalı.
-
-        # for j, p2_ in enumerate(verts):
-        #     if i == j:
-        #         continue
-
-        #     if (p2_ - p1).length < .0001:
-        #         if j > i:
-        #             # p2 = verts[j - 1]
-        #             p2 = verts[j + 1] if j < last_vert else verts[0]
-        #         else:
-        #             p2 = verts[j - 1]
-        #             # p2 = verts[j + 1] if j < last_vert else verts[0]
-        #         break
-
         # Şimdiki noktanın açısı bulunur. (p1'in açısı -> Vector1 ile Vector2 arasında)
         v1 = (p0 - p1).normalized()
         v2 = (p2 - p1).normalized()
 
-        # print(v1, v2, (v1+v2).normalized())
-
         bisectors.append((v1+v2).normalized())
-        # ort = Vector((*(p[0].xy - p[1].xy).orthogonal().normalized() * distance, 0))
-        #
-        # print(ort)
+
     return bisectors
 
 
+# ############################################### ###########################
+# ############################################### Noktalar çizgilere yakın mı veya çizgiler kesişiyor mu
 def is_close_distance_to_points(verts_main, verts_target, distance):
     """Yeni parçadaki noktalardan herhangi birisi Objeye, distance'dan fazla yakın mı?
     verts_target'daki noktalar sırayla ele alınıp, verts_main'deki noktalara istenen distance'dan yakın mı kontrol
@@ -138,11 +312,14 @@ def is_2_poly_intersect(verts1, verts2, in_2d=True):
                 if intersect_line_line_2d(t0, t1, m0, m1):
                     return True
             else:
-                # TODO Henüz kodlanmadı
+                # TODO Henüz 3D'de kesişim kısmı kodlanmadı
                 intersect_line_line(t0, t1, m0, m1)
+
     return False
 
 
+# ############################################### ###########################
+# ############################################### Kendi içinde kesişen yerlerden ayırarak yeni parça oluştur.
 def split_parts_from_intersect_in_self(verts_target, tersli_duzlu=False):
     """Kesişen çizgi varsa, kesişen kısımlarından parça oluştur ve oluşan parçaları döndür.
     Ana parça verts_target içinde kalır.
@@ -178,10 +355,14 @@ def split_parts_from_intersect_in_self(verts_target, tersli_duzlu=False):
         if o and o != e1.xy and o != v.xy and o != v0.xy and o != v1.xy:
             # Kesişen noktalar arasında kalan noktalardan yeni bir parça oluştur
             parca = [t.copy() for t in verts_target[n - 1:]]
-            parca[0].xy = parca[-1].xy = o
+
+            # Kesişim noktasının Z değerini de bul. Yan, 3D noktayı bul
+            o = v0.lerp(v1, intersect_point_line(o, v0.xy, v1.xy)[1])
+
+            parca[0] = parca[-1] = o
 
             # Önceki noktanın konumunu kesişim noktasına güncelle
-            e1.xy = o
+            e1.xyz = o
 
             # Yeni parçayı ilkparça'dan çıkart
             for t in verts_target[n:-2]:
@@ -203,182 +384,22 @@ def disolve_doubles(verts):
     if not len(verts):
         return
 
-    # Tersten alıyoruz ki,
+    # Tersten alıyoruz ki, silinince listede kayma olmasın
     for i in range(len(verts) - 1, -1, -1):
         if verts[i-1] == verts[i]:
             verts.pop(i)
 
 
-def offset(verts, distance=.2, orientation=-1):
-    """Poly'ye offset uygular ve yeni Poly noktalarını döndürür.
-
-    :param verts: VectorList:    Poly'nin pointleri
-    :param distance: float: Mesafe
-    :param orientation: int: -1 or +1 -> iç veya dış offset
-
-    return VectorList: Poly'nin offset almnış hali
-    """
-
-    # Poly çizgileri kesişmez hale getirilir
-    non_intersecting_poly(verts)
-
-    disolve_doubles(verts)
-
-    angles = calc_verts_angles(verts)
-
-    bisectors = calc_verts_bisector(verts)
-
-    ilkparca = []
-    parcalar = [ilkparca]
-
-    # Tüm açıortay vektörlerini sırayla al
-    for j, i in enumerate(bisectors):
-        # Elimizde bir dik üçgen olduğunu düşünelim
-        # i noktadaki açıyı biliyoruz -> angles[j]
-        # Açının yanındaki kenar uzunluğu -> distance
-        # Açıortay vektörünün uzunluğunu hipotenüs olarak düşünelim ve bunu bulalım
-        # Sonra açıortay doğrultusunda, hipotenüs kadar uzat
-        # Kısaca OFFSETI BUL
-        # açı 180'den büyükse, karşı açıyı kullan (360'dan çıkart)
-        if angles[j] > math.radians(180):
-            angle = math.radians(360) - angles[j]
-            ti = (distance / math.sin(angle / 2))
-            v = verts[j] - i * ti * orientation
-        else:
-            ti = (distance / math.sin(angles[j] / 2))
-            v = verts[j] + i * ti * orientation
-
-        # TODO!!! Geri çekmede bazı yerlerde sorun yaşıyoruz, bunu çözelim
-        # ##########################################################
-        # Bir Önceki noktaya bak, içbükey mi, Dar açılıysa, geri çek
-        # ##########################################################
-        # if len(ilkparca) > 4:
-        if len(ilkparca) > 4 and orientation > 0:   # TODO -> Buraya geçici olarak orientation ekledik
-            # Eklediğimiz son 2 noktayı alıyoruz
-            e1 = ilkparca[-1]
-            e2 = ilkparca[-2]
-            # Eklediğimiz sondan ikinci noktayı alıyoruz.
-            for t in ilkparca[::-1]:
-                if t != e1:
-                    e2 = t
-                    break
-
-            # Şimdi ekleyeceğimiz nokta ile son iki noktayı alıp, son noktada oluşan açıyı buluyoruz
-            ang = calc_verts_angles([e2, e1, v])[1]
-
-            # Eğer son noktadaki açı 90 dereceden küçükse, geri çekmek gerekebilir. Şimdi onu inceliyoruz.
-            if ang < math.radians(90):
-
-                # Noktadan çizgiye mesafe kontrolü
-                # Objedeki çizgileri sırayla geziyoruz
-                for n in range(len(verts)):
-                    if not n:
-                        continue
-
-                    # Objedeki sıradaki 2 nokta alınır
-                    p0 = verts[n-1]
-                    p1 = verts[n]
-
-                    # Eklediğimiz son noktanın obje çizgisine mesafesi bulunur
-                    c, ratio = intersect_point_line(e1, p0, p1)
-
-                    # Mesafe distance'den küçükse, Son nokta geri çekilir.
-                    mes = (c - e1).length
-                    if (1 >= ratio >= 0) and (mes + .01 < distance): # and (angles[j] < math.radians(180)):
-                        # Son noktadan şimdiki noktaya olan vektör (Kenar 1)
-                        v1 = v - e1
-                        # Objedeki yakın olduğumuz kenarın vektörü (Kenar 2)
-                        v2 = p0 - p1
-
-                        # Bu iki kenar arasındaki açı
-                        ang = v1.angle(v2)
-
-                        # if ang > math.radians(180):
-                        #     v2 = p0 - p1
-                        #     ang = v1.angle(v2)
-
-                        # Son noktadan şimdiki noktaya olan kenar ile objedeki yakın kenarın kesiştiği nokta
-                        ya = intersect_line_line(e1, v, p0, p1)[0]
-
-                        # Distance nokta, oluşturğumuz kenarın neresine geliyor (oran)
-                        ratio = abs(distance / math.sin(ang)) / (ya - v).length
-                        ilkparca[-1] = ya.lerp(v, ratio)
-
-        ilkparca.append(v)
-
-        # ##########################################################
-        # Kesişen çizgi varsa, kesişen kısımlarından parçalara ayır
-        parts = split_parts_from_intersect_in_self(ilkparca)
-        if parts:
-            # Eğer parçaların herhangi birisi, distance'den daha yakınsa ekleme.
-            for p in parts:
-                if not is_close_distance_to_points(verts, p, distance):
-                    parcalar.append(p)
-
-    # İlkparçayı da kontrol edelim.
-    # if not is_2_poly_intersect(verts, ilkparca) and not is_close_distance_to_points(verts, ilkparca, distance):
-    #     # TODO diğer parçalarla kesişiyorsa onlarla birleştir
-    #     parcalar.append(ilkparca)
-
-    parcalar_son = []
-
-    # Parçaların uygunluğu son kez kontrol edilir.
-    for parca in parcalar:
-
-        # parca başka parçanın içinde varsa diğer parçadan silinir.
-        for k in parcalar:
-            if parca == k or len(parca) > len(k):
-                continue
-            hepsi_var = True
-            for u in parca:
-                if u not in k:
-                    hepsi_var = False
-                    break
-            if hepsi_var:
-                for u in parca:
-                    k.remove(u)
-
-        # 3 noktadan az varsa işlem yapılmaz
-        # for n in range(len(verts)):
-        #     if not n:
-        #         continue
-
-        #     p0 = verts[n - 1]
-        #     p1 = verts[n]
-
-        #     for k in parca:
-
-        #         c, ratio = intersect_point_line(k, p0, p1)
-        #         mes = (c - k).length
-        #         if 1 >= ratio >= 0 and (mes + .01 < distance):  # and (angles[j] < math.radians(180)):
-        #             print("sildik", k)
-        #             parca.remove(k)
-        #             break
-
-        # Yeni parçadaki noktalardan herhangi birisi Objeye, distance'dan fazla yakın mı?
-        # Yakın değilse bu parçayı ekle. Evet parça uygundur ve eklenebilir
-        if len(parca) < 3 or is_close_distance_to_points(verts, parca, distance) or is_2_poly_intersect(verts, parca):
-            continue
-
-        parcalar_son.append(parca)
-        # Demek ki bu parça uygun öyleyse Eklenir.
-        # obj.data.splines.new("POLY")
-        # obj.data.splines[-1].use_cyclic_u = True
-        # yenler = obj.data.splines[-1].points
-        # yenler[-1].co.xyz = parca[0]
-
-        # for v in parca[1:]:
-        #     if v.xyz != yenler[-1].co.xyz:
-        #         yenler.add(1)
-        #         yenler[-1].co.xyz = v
-
-        # print(len(yenler), "as")
-    # print(*parcalar, sep="\n"*5)
-    return parcalar_son
-
-
 # ############################################### ###########################
 # ############################################### Poly'yi kesişmez hale getir
+def non_intersecting_poly(vertices):
+    _kesisim_yerlerine_nokta_ekle(vertices)
+
+    ##########################################
+    # Kesişim noktalarından dönüşler yap. İlk verts'e geldiğinde bitir
+    _kesisimden_yon_degis(vertices)
+
+
 def _kesisim_noktalarini_bul(vertices, z=0):
     """Poly'de kesişim noktalarını bul ve biriktir
 
@@ -469,59 +490,17 @@ def _kesisimden_yon_degis(vertices):
     return vertices
 
 
-def non_intersecting_poly(vertices):
-    _kesisim_yerlerine_nokta_ekle(vertices)
-
-    ##########################################
-    # Kesişim noktalarından dönüşler yap. İlk verts'e geldiğinde bitir
-    _kesisimden_yon_degis(vertices)
-
-
-# ###############################################
-# ###############################################
-def new_poly_curve(polys):
-    """Noktalardan yeni bir Poly oluşturulur"""
-    # Curve Data oluştur
-    curve = bpy.data.curves.new("npoly", "CURVE")
-
-    for points in polys:
-        # Poly spline oluştur
-        curve.splines.new("POLY")
-
-        # ilk ve son nokta eşitse, son noktayı sil
-        if points[0] == points[-1]:
-            points.pop(-1)
-
-        # Kapalı yap
-        curve.splines[-1].use_cyclic_u = True
-
-        # Curve Pointleri al
-        curpt = curve.splines[-1].points
-
-        # Gelen point sayısı kadar Curve'da point oluşturulur
-        curpt.add(len(points) - 1)
-
-        # Gelen pointler Curve'ye eklenir
-        for j, v in enumerate(points):
-            if v.xyz != curpt[-1].co.xyz:
-                curpt[j].co.xyz = v
-
-    # Obje oluşturlup sahneye eklenir
-    obje = bpy.data.objects.new("npoly", curve)
-    obje.data.dimensions = '3D'
-    bpy.context.scene.collection.objects.link(obje)
-
-
+"""
 obj = bpy.context.active_object
 
 vertices = [i.co.xyz for i in obj.data.splines[0].points]
 
 
 # non_intersecting_poly(vertices)
-# new_poly_curve([vertices])
+# new_poly_curve([vertices], add_screen=True)
 # En az 3 nokta veya daha fazla nokta varsa burası hesaplanır.
 if len(vertices) >= 3:
-    parcalar = offset(vertices, distance=.2, orientation=1)
+    parcalar = offset(vertices, distance=.2, orientation=-1)
 
-    new_poly_curve(parcalar)
-
+    new_poly_curve(parcalar, add_screen=True)
+"""
