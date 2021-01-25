@@ -162,6 +162,7 @@ def offset(verts, distance=.2, orientation=-1):
         # Kesişen çizgi varsa, kesişen kısımlarından parçalara ayır
         parts = split_parts_from_intersect_in_self(ilkparca)
         if parts:
+
             # Eğer parçaların herhangi birisi, distance'den daha yakınsa ekleme.
             for p in parts:
                 if not is_close_distance_to_points(verts, p, distance):
@@ -183,7 +184,8 @@ def offset(verts, distance=.2, orientation=-1):
                     break
             if hepsi_var:
                 for u in parca:
-                    k.remove(u)
+                    if u in k:
+                        k.remove(u)
 
         # Yeni parçadaki noktalardan herhangi birisi Objeye, distance'dan fazla yakın mı?
         # Yakın değilse bu parçayı ekle. Evet parça uygundur ve eklenebilir
@@ -224,7 +226,7 @@ def calc_verts_angles(verts):
             angle = math.radians(360) - angle
 
         angles.append(angle)
-        # print("angle", math.degrees(angle))
+        print("angle", math.degrees(angle))
 
     return angles
 
@@ -352,7 +354,7 @@ def split_parts_from_intersect_in_self(verts_target, tersli_duzlu=False):
         o = intersect_line_line_2d(e1, v, v0, v1)
 
         # Çizgiler ucları dışında biryerden kesişiyorsa
-        if o and o != e1.xy and o != v.xy and o != v0.xy and o != v1.xy:
+        if v != v0 and o and o != e1.xy and o != v.xy and o != v0.xy and o != v1.xy:
             # Kesişen noktalar arasında kalan noktalardan yeni bir parça oluştur
             parca = [t.copy() for t in verts_target[n - 1:]]
 
@@ -488,7 +490,6 @@ def _kesisimden_yon_degis(vertices):
                 break
 
     return vertices
-
 
 """
 obj = bpy.context.active_object
