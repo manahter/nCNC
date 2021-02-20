@@ -190,6 +190,16 @@ class bpoly(list):
 
         return False
 
+    def is_intersect_line(self, p0, p1, in_2d=True):
+        """Line ile kesişip kesişmediğini bulur
+        :param p0: Vector: Line'ın 0. noktası
+        :param p1: Vector: Line'ın 1. noktası
+        :param in_2d: bool: Kesişim 2D olarak mı incelensin?
+
+        return bool
+        """
+        return self.is_intersect(bpoly((p0, p1), cyclic=False), in_2d=in_2d)
+
     @staticmethod
     def _ray(verts, p):
         """İçinde mi? Işın yöntemi"""
@@ -531,42 +541,65 @@ def clearance_offset_splines(splines, distance=.2):
 
 
 # ############################################### Poly içini Zigzagla doldur
-def clearance_zigzag(verts, angle=45, distance=1.0):
+@add_screen_decorator
+def clearance_zigzag(splines, angle=45, distance=1.0):
     """
     Poly vertslerinin içte kalan kısmına zigzag oluşturur.
 
-    :param verts: VectorList: Dilimlenecek Poly'nin noktaları. Orjinal listeyi verme. Copy List olsun.
+    :param splines: VectorList: Dilimlenecek Poly'nin noktaları. Orjinal listeyi verme. Copy List olsun.
     :param angle: int: Dilimleyici hangi açıda olsun
     :param distance: float: Dilimler arası mesafe ne kadar olsun
 
     return [(p0, p1, p2, p3), (p0, p1), ...]    -> Poly Parçalar
     """
 
+    parts_orj = []
+    # Spline'lar düzgün bir şekilde Poly'ye çevrilir
+    for s in splines:
+        # Spline Poly, bpoly'ye çevrilir veya bpoly ise birşey yapma
+        verts = bpoly(s) if type(s) in (list, Spline) else s
+
+        if len(verts) < 2:
+            continue
+
+        # Poly partlara eklenir.
+        parts_orj.append(verts)
+
     # Zigzag çizgilerini hesapla
-    zigzag_lines = _zigzag_vektorlerini_olustur(verts, angle, distance)
+    zigzag_lines = _zigzag_vektorlerini_olustur(parts_orj, angle, distance)
 
     # Zigzag çizgilerinin Ana Poly'yi kestiği noktalara yeni nokta ekle
-    kesimli_hali = _zigzagda_kesisimlere_nokta_ekle(verts, zigzag_lines)
+    kesimli_hali = _zigzagda_kesisimlere_nokta_ekle(parts_orj, zigzag_lines)
 
+    print(len(kesimli_hali))
     # Ana Poly'ye minik bir offset uygula ve zigzag çigilerini uygun şekilde birleştir.
     # Offsetin sebebi, zigzag çizgilerine çok yakın olanları kesiyor saymasın diyedir..
-    return _zigzag_cizgilerini_birlestir(offset_2d(verts, .001, 1)[0], kesimli_hali)
+    full = []
+    # for i in _zigzag_cizgilerini_birlestir(offset_splines(parts_orj, -.01), kesimli_hali):
+    for i in _zigzag_cizgilerini_birlestir(offset_splines(parts_orj, .01), kesimli_hali):
+        full.append(bpoly(i, cyclic=False))
+
+    return full
 
 
-def _zigzag_vektorlerini_olustur(verts, angle=45, distance=1.0):
+def _zigzag_vektorlerini_olustur(verts_list, angle=45, distance=1.0):
     """
     Zigzag için çizgilerini oluşturur.
 
-    :param verts: VectorList: Dilimlenecek Poly'nin noktaları
+    :param verts_list: VectorList: Dilimlenecek Poly'nin noktaları
     :param angle: int: Dilimleyici hangi açıda olsun
     :param distance: float: Dilimler arası mesafe ne kadar olsun
 
     return [(p0, p1), (p0, p1), ...]    -> Lines
     """
-    min_x = min(verts, key=lambda v: v.x).x - .1
-    min_y = min(verts, key=lambda v: v.y).y - .1
-    max_x = max(verts, key=lambda v: v.x).x + .1
-    max_y = max(verts, key=lambda v: v.y).y + .1
+    all_verts = []
+    for verts in verts_list:
+        all_verts.extend(verts)
+
+    min_x = min(all_verts, key=lambda v: v.x).x - .1
+    min_y = min(all_verts, key=lambda v: v.y).y - .1
+    max_x = max(all_verts, key=lambda v: v.x).x + .1
+    max_y = max(all_verts, key=lambda v: v.y).y + .1
 
     ang = angle % 360
     rad = math.radians(ang)
@@ -607,11 +640,11 @@ def _zigzag_vektorlerini_olustur(verts, angle=45, distance=1.0):
     return slice_lines
 
 
-def _zigzagda_kesisimlere_nokta_ekle(verts_main, zigzag_lines):
+def _zigzagda_kesisimlere_nokta_ekle(verts_list, zigzag_lines):
     """
     Zigzag için çizgilerinin kesişim yerlerine nokta ekler
 
-    :param verts_main: VectorList: Ana Poly'nin noktaları
+    :param verts_list: VectorList: Ana Poly'nin noktaları
     :param zigzag_lines: [(p0, p1), (p0, p1), ...]: LineList
 
     return [ [p0, p1, p2, p3], [p0, p1], ]
@@ -619,15 +652,17 @@ def _zigzagda_kesisimlere_nokta_ekle(verts_main, zigzag_lines):
     kesimler = []
     for s0, s1 in zigzag_lines:
         kesisiy = []
-        for i in range(len(verts_main)):
-            v0 = verts_main[i - 1]
-            v1 = verts_main[i]
 
-            o = intersect_line_line_2d(s0, s1, v0, v1)
+        for verts in verts_list:
+            for i in range(len(verts)):
+                v0 = verts[i - 1]
+                v1 = verts[i]
 
-            if o and o != v1.xy:
-                ratio = intersect_point_line(o, v0, v1)[1]
-                kesisiy.append(v0.lerp(v1, ratio))
+                o = intersect_line_line_2d(s0, s1, v0, v1)
+
+                if o and o != v1.xy:
+                    ratio = intersect_point_line(o, v0, v1)[1]
+                    kesisiy.append(v0.lerp(v1, ratio))
 
         # Eğer tekli bir değer çıkarsa, kesişimi atla
         if len(kesisiy) % 2 != 0:
@@ -645,14 +680,13 @@ def _zigzagda_kesisimlere_nokta_ekle(verts_main, zigzag_lines):
     return kesimler
 
 
-def _zigzag_cizgilerini_birlestir(verts_main, zigzag_lines):
+def _zigzag_cizgilerini_birlestir(verts_list, zigzag_lines):
     """Gruplanmış çizgileri uygun olan uçlarından birleştir.
 
-    :param verts_main: VectorList: Ana Poly'nin noktaları
+    :param verts_list: VectorList: Ana Poly'nin noktaları
     :param zigzag_lines: [(p0, p1), (p0, p1), ...]: LineList
-
-
     """
+    # TODO Burada birleştirme işleminde düzenleme yapalım. Çünkü tek çizgi halinde kalanlar çok oluyor.
 
     parts = []
     parca = []
@@ -661,7 +695,7 @@ def _zigzag_cizgilerini_birlestir(verts_main, zigzag_lines):
     while any(zigzag_lines):
         line_points = zigzag_lines[p_ind]
 
-        # İçierikte nokta yoksa, son parçayı paketle.
+        # İçerikte nokta yoksa, son parçayı paketle.
         if len(line_points) < 2:
             if parca:
                 parts.append(parca)
@@ -688,11 +722,11 @@ def _zigzag_cizgilerini_birlestir(verts_main, zigzag_lines):
             # Önceki noktaya, şimdi ele aldığımız noktalar arasındaki en yakın olanını bul
             for v in line_points:
 
-                if (v - v_son).length < l_min_dist and \
-                        not verts_main.is_intersect(bpoly([v, v_son], cyclic=False)):
-                    # not is_2_polylines_intersect([v, v_son], verts_main, verts1_cyclic=False):
-                    l_min_dist = (v - v_son).length
-                    v_cur = v
+                for verts in verts_list:
+                    if (v - v_son).length < l_min_dist and not verts.is_intersect_line(v, v_son):
+                        # not is_2_polylines_intersect([v, v_son], verts_main, verts1_cyclic=False):
+                        l_min_dist = (v - v_son).length
+                        v_cur = v
 
             # Şimdi bulduğumuz noktaya bağlı nokta bulunur.
             v_cur_ind = line_points.index(v_cur)
@@ -700,12 +734,17 @@ def _zigzag_cizgilerini_birlestir(verts_main, zigzag_lines):
 
             ok = True
 
-            # Yeni çizginin, Objedeki çizgilerle kesişip kesişmediğine bak
-            for i in range(len(verts_main)):
+            for verts in verts_list:
 
-                if intersect_line_line_2d(v_son, v_cur, verts_main[i - 1], verts_main[i]):
+                if verts.is_intersect_line(v_son, v_cur):
                     ok = False
                     break
+                # Yeni çizginin, Objedeki çizgilerle kesişip kesişmediğine bak
+                # for i in range(len(verts)):
+##
+                #     if intersect_line_line_2d(v_son, v_cur, verts[i - 1], verts[i]):
+                #         ok = False
+                #         break
 
             # Kesişme varsa, son parçayı paketle ve yeni parça oluştur
             if not ok:
@@ -970,11 +1009,13 @@ if __name__ == "__main__":
     orient = -1
     obj = bpy.context.active_object
     # vertices = [i.co.xyz for i in obj.data.splines[0].points]
-    # offset_splines(obj.data.splines, distance=-.2, add_screen=True)
+    # offset_splines(obj.data.splines, distance=.01, add_screen=True)
     # offset_spline(obj.data.splines[0], distance=-.2, add_screen=True)
     # offset_2d(obj.data.splines[0], distance=.2, add_screen=True)
-    clearance_offset_splines(obj.data.splines, .2, add_screen=True)
+    # clearance_offset_splines(obj.data.splines, .2, add_screen=True)
+    clearance_zigzag(obj.data.splines, distance=.2,  add_screen=True)
 
+    # vs = clearance_zigzag(bpoly(vertices, cyclic=True), distance=.2,  add_screen=True)
     # parcas = offset_splines(obj.data.splines, add_screen=True, orientation=1)
     # mp = is_inside(vertices, Vector((16.4917, -17.1315, 0)))
 
@@ -1005,12 +1046,10 @@ if __name__ == "__main__":
     # new_poly_curve(vs, add_screen=True)
     # is_inside(vertices, j)
 
-    # vs = clearance_zigzag(bpoly(vertices), distance=.2)
     # vs = clearance_offset_spline(bpoly(vertices, cyclic=True), distance=.2, add_screen=True)
     # vs = offset_2d(vertices, .001, 1)
     # vs = offset_2d(bpoly(vertices, cyclic=True), .2, -1)
     #vs =
-    #np = new_poly_curve(vs, add_screen=True)
     # print(np)
 
     # parcas = offset_2d(vertices)
