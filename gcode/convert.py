@@ -385,6 +385,7 @@ class NCNC_OT_GCodeConvert(Operator):
             # Convert Outline
             for j, k in enumerate(self.dongu[self.index_dongu:], start=self.index_dongu + 1):
 
+                # TODO ! Burada sadece POLY olacak şekilde düzenle. Diğerleri artık kullanılmayacak
                 rate_dongu = (1 / len(self.dongu)) * rate_spline
                 self.conf.loading += max(rate_dongu * self.index_dongu * 100, 1)
                 if not len_curves:
