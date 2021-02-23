@@ -5,6 +5,7 @@ non_intersecting_poly       : Poly'yi kendini kesmez hale getirir
 from mathutils.geometry import intersect_line_line_2d, intersect_point_line, normal
 from mathutils import Vector
 from .is_ import is_same_point, is_on_line
+from .angles import angle_3p
 
 
 # ############################################### Kesişim yerlerinden yeni parçalar
@@ -199,6 +200,7 @@ def non_intersecting_poly(verts, cyclic=False):
 
     # TODO Nokta çizginin üzerindeyse, biraz uzaklaştır.
     _cakisan_nokta_cizgi_uzaklastir(verts)
+    # _cakisan_cizgi_nokta_fillet(verts)
 
     _kesisim_yerlerine_nokta_ekle(verts, cyclic)
 
@@ -264,19 +266,43 @@ def _cakisan_noktalari_uzaklastir(vertices):
 
     for i in range(len(vertices)):
 
-        v0 = vertices[i]
+        vi_0 = vertices[i]
 
         for j in range(i + 1, len_vert):
 
-            if is_same_point(v0, vertices[j]):
+            if is_same_point(vi_0, vertices[j], tolerance=.0005):
                 # TODO Burada hangi noktayı uzaklaştırdığımız çok önemli
                 #   Dar açılı olanı uzaklaştırmak lazım. Tabi henüz bunu düzenlemedik. Alttaki satır geçici düzenlendi.
 
-                vertices[i] = vertices[i].lerp(vertices[i - 1], .001 / (vertices[i] - vertices[i - 1]).length)
+                # TODO +1 kısımlarını düzenle. İleride hata verebilir
+                vi_once = vertices[i - 1]
+                vi_snra = vertices[i + 1]
+
+                vj_0 = vertices[j]
+                vj_once = vertices[j-1]
+
+                vi_cek_geri = vi_0.lerp(vi_once, .001 / (vi_0 - vi_once).length).freeze()
+                vi_cek_ilri = vi_0.lerp(vi_once, -.001 / (vi_0 - vi_once).length).freeze()
+
+                o0 = intersect_line_line_2d(vi_once, vi_cek_geri, vj_0, vj_once)
+                o1 = intersect_line_line_2d(vi_snra, vi_cek_geri, vj_0, vj_once)
+
+                # print(vi_cek_geri, vi_cek_ilri)
+                if (o0 and o0 != vi_0.xy) or (o1 and o1 != vi_0.xy):
+                    vertices[i] = vi_cek_ilri
+                else:
+                    vertices[i] = vi_cek_geri
+                    # angle0 = angle_3p(vertices[i-1], v0, vertices[i+1], degree=True)
+                    # angle1 = angle_3p(vertices[j-1], vertices[j], vertices[j+1], degree=True)
+                    # print(angle0, angle1)
+
+                # vertices[i] = vertices[i].lerp(vertices[i - 1], .001 / (vertices[i] - vertices[i - 1]).length)
                 # vertices[j] = vertices[j].lerp(vertices[j - 1], .001 / (vertices[j] - vertices[j - 1]).length)
 
 
-def _cakisan_nokta_cizgi_uzaklastir(vertices, cyclic=False):
+def _cakisan_nokta_cizgi_uzaklastir(vertices):
+    cyclic = vertices.cyclic
+
     len_vert = len(vertices)
 
     for i in range(len_vert):
@@ -288,11 +314,45 @@ def _cakisan_nokta_cizgi_uzaklastir(vertices, cyclic=False):
 
         for j in range(len_vert):
 
-            if i in (j, j-1):
+            if {i, i-1} & {j, j-1}:
                 continue
 
-            if is_on_line(v0, v1, vertices[j]):
+            if is_on_line(v0, v1, vertices[j], tolerance=.0001):
+
+                # TODO Burada sorun var, düzeltelim
                 vertices[j] = vertices[j].lerp(vertices[j - 1], .001 / (vertices[j] - vertices[j - 1]).length)
+                # vertices[j] = vertices[j].lerp(vertices[j + 1], .001 / (vertices[j] - vertices[j + 1]).length)
+                # vertices.insert(j, vertices[j].lerp(vertices[j - 1], .001 / (vertices[j] - vertices[j - 1]).length))
+
+
+def _cakisan_cizgi_nokta_fillet(vertices):
+    cyclic = vertices.cyclic
+
+    i = 0
+
+    while i < len(vertices):
+        if not i and not cyclic:
+            continue
+
+        v0 = vertices[i-1]
+        v1 = vertices[i]
+
+        j = 0
+
+        while j < len(vertices):
+
+            if i in (j, j-1):
+                j += 1
+                continue
+
+            if is_on_line(v0, v1, vertices[j], tolerance=.0001):
+                snr = j + 1 if j + 1 < len(vertices) else 0
+                vertices[j] = vertices[j].lerp(vertices[snr], .001 / (vertices[j] - vertices[snr]).length)
+                vertices.insert(j, vertices[j].lerp(vertices[j - 1], .001 / (vertices[j] - vertices[j - 1]).length))
+
+            j += 1
+
+        i += 1
 
 
 def _kesisim_noktalarini_bul(vertices, z=0, cyclic=False):

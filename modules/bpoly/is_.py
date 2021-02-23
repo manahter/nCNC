@@ -24,9 +24,9 @@ def is_linear_3p(p0, p1, p2, tolerance=.0001):
     return n1 == n2 or (n1 - n2).length < tolerance or (n1 + n2).length < tolerance
 
 
-def is_on_line(p0, p1, v):
+def is_on_line(p0, p1, v, tolerance=.001):
     """v, çizgi üzerinde mi?"""
-    return (p0 - v).length + (p1 - v).length - (p0 - p1).length < .001
+    return (p0 - v).length + (p1 - v).length - (p0 - p1).length < tolerance
 
 
 def is_same_point(p0, p1, tolerance=.0001):

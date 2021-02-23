@@ -278,3 +278,65 @@ def clearance_offset(verts, distance=.2):
         parts.append(vs)
         parts.extend(clearance_offset(vs, distance))
     return parts
+
+
+
+def yeni_parcalar_overlaps(verts0, verts1):
+    kesisen_noktalar = list(set(verts0) & set(verts1))
+
+    if len(kesisen_noktalar) < 2:
+        return
+
+    # verts0 çakışan noktalardan parçalarına ayrılır
+    inds0 = [verts0.index(kp) for kp in kesisen_noktalar]
+    inds0.sort()
+    # print("verts0", verts0)
+    # print("inds0", inds0)
+    parts0 = [verts0[inds0[i-1]: inds0[i] + 1] for i in range(len(inds0))]
+    # print("parts0", parts0)
+
+    # verts1 çakışan noktalardan parçalarına ayrılır
+    inds1 = [verts1.index(kp) for kp in kesisen_noktalar]
+    inds1.sort()
+    # print("inds1", inds1)
+    parts1 = [verts1[inds1[i-1]: inds1[i] + 1] for i in range(len(inds1))]
+    # print("parts1", parts1)
+
+    parts = []
+    # Tüm parçaları dön ve uc uca birşebilenleri birleştir
+    for p0 in parts0:
+        # print("p0", p0)
+        for p1 in parts1:
+            # print("p1", p1)
+
+            if p0[0] == p1[-1]:
+                parts.append(p0 + p1)
+                parts1.remove(p1)
+                break
+            elif p0[0] == p1[0]:
+                p1.reverse()
+                parts.append(p0 + p1)
+                parts1.remove(p1)
+                break
+            elif p0[-1] == p1[0]:
+                parts.append(p1 + p0)
+                parts1.remove(p1)
+                break
+            elif p0[-1] == p1[-1]:
+                p1.reverse()
+                parts.append(p1 + p0)
+                parts1.remove(p1)
+                break
+
+    parts = [bpoly(i, copy_conf=verts0) for i in parts]
+
+    # Örtüşen noktaları geri çek
+    # for k in kesisen_noktalar:
+    #     for part in parts:
+    #         if k in part:
+    #             i = part.index(k)
+    #             part[i] = k.lerp(part[i-1], .001 / (k - part[i-1]).length).freeze()
+
+    # print(kesisen_noktalar)
+    return parts
+
