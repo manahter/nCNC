@@ -99,6 +99,3 @@ as Curve: Use curves and lines. Use all, including G2-G3.
 
 ## License
 nCNC uses the MIT license. See [LICENSE](https://github.com/manahter/nCNC/blob/main/LICENSE) for more details.
-
-## Support
-This section has been removed as there is no supporter. If you want to support, contact me.
