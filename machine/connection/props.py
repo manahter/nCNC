@@ -48,7 +48,7 @@ class NCNC_PR_Connection(PropertyGroup):
             bpy.ops.ncnc.communication(start=False)
 
     def get_ports(self, context):
-        return [(i.device, str(i), i.name) for i in comports()]
+        return [(i.device, str(i), i.name or "") for i in comports()]
 
     isconnected: BoolProperty(
         name="IsConnected",
