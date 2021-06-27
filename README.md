@@ -30,6 +30,7 @@ This add-on; Allows you to control the CNC machine and generate G-code to millin
 * Or see in detail on [wiki](https://github.com/manahter/nCNC/wiki/Installation)
 
 ## Issues and Solutions
+* [Not connecting to the machine (for linux)](https://github.com/manahter/nCNC/issues/7)
 * [Access /dev/ttyACM0 blender in flatpak](https://github.com/manahter/nCNC/issues/6) by @Condiolov
 
 ## General Features
