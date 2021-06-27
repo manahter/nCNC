@@ -16,6 +16,7 @@ This add-on; Allows you to control the CNC machine and generate G-code to millin
 ## Table of contents
 * [General Features](#General-Features)
 * [Installation](#Installation)
+* [Issues and Solutions](#Issues-and-Solutions)
 * [Usage](#Usage)
 * [Feature Done](#Feature-Done)
 * [License](#License)
@@ -27,6 +28,9 @@ This add-on; Allows you to control the CNC machine and generate G-code to millin
 2. Blender: Edit -> Preferences -> Add-ons -> Install.
 3. Select the downloaded file and you're good to go.
 * Or see in detail on [wiki](https://github.com/manahter/nCNC/wiki/Installation)
+
+## Issues and Solutions
+* [Access /dev/ttyACM0 blender in flatpak](https://github.com/manahter/nCNC/issues/6) by @Condiolov
 
 ## General Features
 * G Code Viewer
