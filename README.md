@@ -7,6 +7,9 @@
 [![Blender Addon](https://img.shields.io/github/license/manahter/nCNC)](https://github.com/manahter/nCNC/blob/main/LICENSE)
 ![GitHub last commit](https://img.shields.io/github/last-commit/manahter/nCNC)
 
+### NOTE1: The development of this add-on is interrupted. 
+### NOTE2: It is planned to be developed only for Laser in the future. 
+
 This add-on; Allows you to control the CNC machine and generate G-code to milling.
 
 * _Currently only curves can be converted (will be developed for 3D objects as well)_
