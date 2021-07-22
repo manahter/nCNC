@@ -1,3 +1,14 @@
+# NOTE
+# The development of this Add-on has been stopped.
+# A better alternative - BlenderCAM: https://github.com/vilemduha/blendercam
+
+
+#
+#
+#
+#
+
+
 ![Cover](https://user-images.githubusercontent.com/73780835/98469456-cff8f880-21f0-11eb-9431-a0b6cd2e5d80.png)
 # Blender Add on - nCNC - CAM / CAD
 [![Blender Addon](https://img.shields.io/badge/Blender-2.9-orange?&style=flat&logo=blender&logoColor=white)](https://www.blender.org/download/releases/2-90/)
